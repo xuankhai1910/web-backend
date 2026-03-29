@@ -3,8 +3,8 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { InjectModel } from '@nestjs/mongoose';
 import { User } from './schemas/user.schema';
-import { Model } from 'mongoose';
-import bcrypt from 'node_modules/bcryptjs';
+import mongoose, { Model } from 'mongoose';
+import bcrypt, { compareSync } from 'node_modules/bcryptjs';
 
 @Injectable()
 export class UsersService {
@@ -25,18 +25,41 @@ export class UsersService {
   }
 
   findAll() {
-    return `This action returns all users`;
+    return this.userModel.find();
+    }
+
+  findOne(id: string) {
+    if(!mongoose.Types.ObjectId.isValid(id)){
+      return new Error('Invalid user ID');
+    }
+    return this.userModel.findOne({
+      _id: id,
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} user`;
+  findOneByUsername(username: string) {
+    return this.userModel.findOne({
+      email: username,
+    });
   }
 
-  update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
+  isValidPassword(password: string, hash: string) {
+    return compareSync(password, hash);
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} user`;
+  async update( updateUserDto: UpdateUserDto) {
+    const { _id } = updateUserDto;
+    return this.userModel.updateOne({
+      _id: _id,
+    }, updateUserDto);
+    }
+
+  remove(id: string) {
+    if(!mongoose.Types.ObjectId.isValid(id)){
+      return new Error('Invalid user ID');
+    }
+    return this.userModel.deleteOne({
+      _id: id,
+    });
   }
 }
