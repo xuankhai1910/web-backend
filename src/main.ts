@@ -12,7 +12,7 @@ async function bootstrap() {
 	const configService = app.get(ConfigService);
 
 	const reflector = app.get(Reflector);
-	app.useGlobalGuards(new JwtAuthGuard(reflector));
+	// app.useGlobalGuards(new JwtAuthGuard(reflector));
 
 	app.useStaticAssets(join(__dirname, "..", "public"));
 	app.setBaseViewsDir(join(__dirname, "..", "views"));
@@ -20,6 +20,11 @@ async function bootstrap() {
 
 	app.useGlobalPipes(new ValidationPipe());
 	const port = Number(configService.get<string>("PORT")) || 3000;
+	app.enableCors({
+		origin: "*",
+		methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+		preflightContinue: false,
+	});
 	await app.listen(port);
 }
 bootstrap();
