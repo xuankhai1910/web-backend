@@ -4,12 +4,20 @@ import { UpdateCompanyDto } from './dto/update-company.dto';
 import { Company, CompanyDocument } from './schemas/company.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { InjectModel } from '@nestjs/mongoose';
+import { IUser } from 'src/users/users.interface';
+import { Mongoose, Types } from 'mongoose';
 
 @Injectable()
 export class CompaniesService {
-  constructor(@InjectModel(Company.name) private companyModel: SoftDeleteModel<CompanyDocument>) {}
-  create(createCompanyDto: CreateCompanyDto) {
-    const company = this.companyModel.create(createCompanyDto);
+  constructor(
+    @InjectModel(Company.name)
+    private companyModel: SoftDeleteModel<CompanyDocument>,
+  ) {}
+  create(createCompanyDto: CreateCompanyDto, user: IUser) {
+    const company = this.companyModel.create({
+      ...createCompanyDto,
+      createdBy: { _id: user._id, email: user.email },
+    });
     return company;
   }
 
