@@ -1,36 +1,115 @@
+import { Type } from 'class-transformer';
 import {
-	IsString,
-	IsNotEmpty,
-	IsEmail,
-	MaxLength,
-	MinLength,
-} from "class-validator";
+  IsString,
+  IsNotEmpty,
+  IsEmail,
+  MaxLength,
+  MinLength,
+  IsNotEmptyObject,
+  IsObject,
+  ValidateNested,
+} from 'class-validator';
+import mongoose from 'mongoose';
+
+class Company {
+  @IsNotEmpty()
+  _id: mongoose.Schema.Types.ObjectId;
+
+  @IsNotEmpty()
+  name: string;
+}
 
 export class CreateUserDto {
-	@IsEmail(
-		{},
-		{
-			message: "Email không đúng định dạng",
-		},
-	)
-	@IsNotEmpty({
-		message: "Email không được để trống",
-	})
-	email: string;
+  @IsNotEmpty({
+    message: 'Tên không được để trống',
+  })
+  name: string;
 
-	@IsString()
-	@IsNotEmpty({
-		message: "Mật khẩu không được để trống",
-	})
-	@MinLength(6)
-	@MaxLength(15)
-	password: string;
+  @IsEmail(
+    {},
+    {
+      message: 'Email không đúng định dạng',
+    },
+  )
+  @IsNotEmpty({
+    message: 'Email không được để trống',
+  })
+  email: string;
 
-	@IsString()
-	@IsNotEmpty()
-	name: string;
+  @IsString()
+  @IsNotEmpty({
+    message: 'Mật khẩu không được để trống',
+  })
+  @MinLength(6)
+  @MaxLength(15)
+  password: string;
 
-	@IsString()
-	@IsNotEmpty()
-	address: string;
+  @IsString()
+  @IsNotEmpty({
+    message: 'Địa chỉ không được để trống',
+  })
+  address: string;
+
+  @IsNotEmpty({
+    message: 'Vai trò không được để trống',
+  })
+  role: string;
+
+  @IsNotEmpty({
+    message: 'Tuổi không được để trống',
+  })
+  age: number;
+
+  @IsNotEmpty({
+    message: 'Giới tính không được để trống',
+  })
+  gender: string;
+
+  @IsNotEmptyObject()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => Company)
+  company: Company;
+}
+
+export class RegisterUserDto {
+  @IsNotEmpty({
+    message: 'Tên không được để trống',
+  })
+  name: string;
+
+  @IsEmail(
+    {},
+    {
+      message: 'Email không đúng định dạng',
+    },
+  )
+  @IsNotEmpty({
+    message: 'Email không được để trống',
+  })
+  email: string;
+
+  @IsString()
+  @IsNotEmpty({
+    message: 'Mật khẩu không được để trống',
+  })
+  @MinLength(6)
+  @MaxLength(15)
+  password: string;
+
+  @IsString()
+  @IsNotEmpty({
+    message: 'Địa chỉ không được để trống',
+  })
+  address: string;
+
+  @IsNotEmpty({
+    message: 'Tuổi không được để trống',
+  })
+  age: number;
+
+  @IsNotEmpty({
+    message: 'Giới tính không được để trống',
+  })
+  gender: string;
 }
