@@ -7,6 +7,7 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { TransformInterceptor } from './core/transform.interceptor';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -22,6 +23,9 @@ async function bootstrap() {
 
   app.useGlobalPipes(new ValidationPipe());
 
+  //config cookie parser
+  app.use(cookieParser());
+
   const port = Number(configService.get<string>('PORT')) || 3000;
   app.enableCors({
     origin: '*',
@@ -33,7 +37,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableVersioning({
     type: VersioningType.URI,
-	defaultVersion: ['1','2'],
+    defaultVersion: ['1', '2'],
   });
   await app.listen(port);
 }
