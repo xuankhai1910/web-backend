@@ -10,6 +10,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { CompaniesModule } from './companies/companies.module';
 import { JobsModule } from './jobs/jobs.module';
 import { FilesModule } from './files/files.module';
+import { ResumesModule } from './resumes/resumes.module';
 import MongooseDelete from 'mongoose-delete';
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import MongooseDelete from 'mongoose-delete';
     CompaniesModule,
     JobsModule,
     FilesModule,
+    ResumesModule,
   ],
   controllers: [AppController],
   providers: [

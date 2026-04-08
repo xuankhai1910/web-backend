@@ -25,7 +25,7 @@ export class FilesController {
   @ResponseMessage('File uploaded successfully')
   @Public()
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file')) //tên field sử dụng trong form-data
+  @UseInterceptors(FileInterceptor('fileUpload')) //tên field sử dụng trong form-data
   uploadFile(
     @UploadedFile(
       new ParseFilePipeBuilder()
