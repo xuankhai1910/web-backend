@@ -15,13 +15,14 @@ import { FilesService } from './files.service';
 import { CreateFileDto } from './dto/create-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Public } from 'src/decorators/customize';
+import { Public, ResponseMessage } from 'src/decorators/customize';
 import { MimeTypeValidator } from './validators/file-type.validator';
 
 @Controller('files')
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
+  @ResponseMessage('File uploaded successfully')
   @Public()
   @Post('upload')
   @UseInterceptors(FileInterceptor('file')) //tên field sử dụng trong form-data
@@ -30,7 +31,8 @@ export class FilesController {
       new ParseFilePipeBuilder()
         .addValidator(
           new MimeTypeValidator({
-            fileType: /(image\/(jpeg|png|gif)|text\/plain|application\/(pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))/i,
+            fileType:
+              /(image\/(jpeg|png|gif)|text\/plain|application\/(pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))/i,
           }),
         )
         .addMaxSizeValidator({
@@ -42,7 +44,9 @@ export class FilesController {
     )
     file: Express.Multer.File,
   ) {
-    console.log(file);
+    return {
+      fileName: file.filename,
+    };
   }
 
   @Post()
