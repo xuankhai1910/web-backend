@@ -12,5 +12,6 @@ import { Subscriber, SubscriberSchema } from "./schemas/subscriber.schema";
 	],
 	controllers: [SubscribersController],
 	providers: [SubscribersService],
+	exports: [SubscribersService],
 })
 export class SubscribersModule {}
