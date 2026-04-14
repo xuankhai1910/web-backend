@@ -13,13 +13,24 @@ import { FilesModule } from "./files/files.module";
 import { ResumesModule } from "./resumes/resumes.module";
 import { PermissionsModule } from "./permissions/permissions.module";
 import { RolesModule } from "./roles/roles.module";
-import { DatabasesModule } from './databases/databases.module';
-import { SubscribersModule } from './subscribers/subscribers.module';
-import { MailModule } from './mail/mail.module';
+import { DatabasesModule } from "./databases/databases.module";
+import { SubscribersModule } from "./subscribers/subscribers.module";
+import { MailModule } from "./mail/mail.module";
 import MongooseDelete from "mongoose-delete";
+import { ScheduleModule } from "@nestjs/schedule";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+
 @Module({
 	imports: [
-		//MongooseModule.forRoot('mongodb://khaivx2004:3216549872004@ac-ocpnjie-shard-00-00.re5ivoa.mongodb.net:27017,ac-ocpnjie-shard-00-01.re5ivoa.mongodb.net:27017,ac-ocpnjie-shard-00-02.re5ivoa.mongodb.net:27017/?ssl=true&replicaSet=atlas-9axqer-shard-0&authSource=admin&appName=Cluster0'),
+		ScheduleModule.forRoot(),
+		ThrottlerModule.forRoot({
+			throttlers: [
+				{
+					ttl: 60000,
+					limit: 10,
+				},
+			],
+		}),
 		MongooseModule.forRootAsync({
 			imports: [ConfigModule],
 			useFactory: async (configService: ConfigService) => ({
@@ -52,10 +63,10 @@ import MongooseDelete from "mongoose-delete";
 	controllers: [AppController],
 	providers: [
 		AppService,
-		// {
-		// 	provide: APP_GUARD,
-		// 	useClass: JwtAuthGuard,
-		// },
+		{
+			provide: APP_GUARD,
+			useClass: ThrottlerGuard,
+		},
 	],
 })
 export class AppModule {}

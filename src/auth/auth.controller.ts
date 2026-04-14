@@ -15,8 +15,8 @@ import { RegisterUserDto } from "src/users/dto/create-user.dto";
 import { UsersService } from "src/users/users.service";
 import type { Request, Response } from "express";
 import type { IUser } from "src/users/users.interface";
-import { request } from "http";
 import { RolesService } from "src/roles/roles.service";
+import { ThrottlerGuard } from "@nestjs/throttler";
 
 @Controller("auth")
 export class AuthController {
