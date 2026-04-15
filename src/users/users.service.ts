@@ -118,8 +118,14 @@ export class UsersService {
 		return compareSync(password, hash);
 	}
 
-	async update(updateUserDto: UpdateUserDto, @UserDecorator() user: IUser) {
-		const { _id } = updateUserDto;
+	async update(
+		updateUserDto: UpdateUserDto,
+		@UserDecorator() user: IUser,
+		_id: string,
+	) {
+		if (!mongoose.Types.ObjectId.isValid(_id)) {
+			return new BadRequestException(`Invalid user ID : ${_id}`);
+		}
 		return this.userModel.updateOne(
 			{
 				_id: _id,
