@@ -9,6 +9,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { TransformInterceptor } from "./core/transform.interceptor";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 
 async function bootstrap() {
 	const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -44,11 +45,33 @@ async function bootstrap() {
 	app.setGlobalPrefix("api");
 	app.enableVersioning({
 		type: VersioningType.URI,
-		defaultVersion: ["1", "2"],
+		defaultVersion: ["1"],
 	});
 
 	//Config helmet
 	app.use(helmet());
+	const config = new DocumentBuilder()
+		.setTitle("NestJS API Recruitment for graduation project")
+		.setDescription("API description")
+		.setVersion("1.0")
+		.addBearerAuth(
+			{
+				type: "http",
+				scheme: "Bearer",
+				bearerFormat: "JWT",
+				in: "header",
+			},
+			"token",
+		)
+		.addSecurityRequirements("token")
+		.build();
+	const documentFactory = () => SwaggerModule.createDocument(app, config);
+	SwaggerModule.setup("swagger", app, documentFactory, {
+		swaggerOptions: {
+			persistAuthorization: true,
+		},
+	});
+	app.enableShutdownHooks();
 	await app.listen(port);
 }
 bootstrap();

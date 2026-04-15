@@ -30,6 +30,8 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "6.1.1",
+    "@nestjs/swagger": "^11.2.7",
+    "@nestjs/terminus": "11.1.1",
     "@nestjs/throttler": "6.5.0",
     "api-query-params": "^6.1.0",
     "bcryptjs": "^3.0.3",

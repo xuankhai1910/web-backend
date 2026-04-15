@@ -1,3 +1,4 @@
+import { ApiProperty } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
 	IsString,
@@ -116,4 +117,20 @@ export class RegisterUserDto {
 		message: "Giới tính không được để trống",
 	})
 	gender: string;
+}
+
+//create-user.dto
+export class UserLoginDto {
+	@IsString()
+	@IsNotEmpty()
+	@ApiProperty({ example: "user1234", description: "username" })
+	readonly username: string;
+
+	@IsString()
+	@IsNotEmpty()
+	@ApiProperty({
+		example: "123456",
+		description: "password",
+	})
+	readonly password: string;
 }

@@ -19,6 +19,7 @@ import { MailModule } from "./mail/mail.module";
 import MongooseDelete from "mongoose-delete";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { HealthModule } from './health/health.module';
 
 @Module({
 	imports: [
@@ -59,6 +60,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 		DatabasesModule,
 		SubscribersModule,
 		MailModule,
+		HealthModule,
 	],
 	controllers: [AppController],
 	providers: [
