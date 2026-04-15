@@ -23,10 +23,21 @@ export class JobsService {
     return { _id: data._id, createdAt: data.createdAt };
   }
 
-  async findAll(currentPage: number, limit: number, qs: string) {
+  async findAll(currentPage: number, limit: number, qs: string, user: IUser) {
     const { filter, sort, projection, population } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
+
+    // Filter by company id if user is HR (not admin, and has company associated)
+    if (
+      user &&
+      user.role?.name?.toUpperCase() !== 'SUPER_ADMIN' &&
+      user.role?.name?.toUpperCase() !== 'ADMIN' &&
+      user.company
+    ) {
+      filter['company._id'] = user.company._id;
+    }
+
     let offset = (+currentPage - 1) * +limit;
     let defaultLimit = +limit ? +limit : 10;
 
