@@ -7,12 +7,14 @@ import {
   Param,
   Delete,
   Query,
+  Req,
 } from '@nestjs/common';
 import { JobsService } from './jobs.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 import { Public, ResponseMessage, User } from 'src/decorators/customize';
 import type { IUser } from 'src/users/users.interface';
+import type { Request } from 'express';
 
 @Controller('jobs')
 export class JobsController {
@@ -30,9 +32,22 @@ export class JobsController {
   findAll(
     @Query('current') currentPage: string,
     @Query('pageSize') limit: string,
-    @Query() qs: string,
+    @Req() req: Request,
     @User() user: IUser,
   ) {
+    const qs = req.originalUrl.split('?')[1] ?? '';
+    return this.jobsService.findAll(+currentPage, +limit, qs, user);
+  }
+
+  @ResponseMessage('Lấy danh sách công việc thành công')
+  @Post('by-admin')
+  findAllByAdmin(
+    @Query('current') currentPage: string,
+    @Query('pageSize') limit: string,
+    @Req() req: Request,
+    @User() user: IUser,
+  ) {
+    const qs = req.originalUrl.split('?')[1] ?? '';
     return this.jobsService.findAll(+currentPage, +limit, qs, user);
   }
 

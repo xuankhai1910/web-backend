@@ -6,6 +6,7 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import { InjectModel } from '@nestjs/mongoose';
 import { IUser } from 'src/users/users.interface';
 import aqp from 'api-query-params';
+import { Mongoose, Types } from 'mongoose';
 
 @Injectable()
 export class JobsService {
@@ -27,6 +28,15 @@ export class JobsService {
     const { filter, sort, projection, population } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
+
+    for (const key of Object.keys(filter)) {
+      const match = key.match(/^(.+)\[(\$\w+)\]$/);
+      if (match) {
+        const [, field, op] = match;
+        filter[field] = { ...(filter[field] || {}), [op]: Number(filter[key]) };
+        delete filter[key];
+      }
+    }
 
     // Filter by company id if user is HR (not admin, and has company associated)
     if (
