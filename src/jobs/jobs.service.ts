@@ -1,21 +1,72 @@
-import { Injectable } from '@nestjs/common';
-import { CreateJobDto } from './dto/create-job.dto';
-import { UpdateJobDto } from './dto/update-job.dto';
-import { Job, JobDocument } from './schemas/job.schema';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import type { CreateJobDto } from './dto/create-job.dto';
+import type { UpdateJobDto } from './dto/update-job.dto';
+import { Job } from './schemas/job.schema';
+import type { JobDocument } from './schemas/job.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { InjectModel } from '@nestjs/mongoose';
-import { IUser } from 'src/users/users.interface';
+import type { IUser } from 'src/users/users.interface';
 import aqp from 'api-query-params';
-import { Mongoose, Types } from 'mongoose';
 
 @Injectable()
 export class JobsService {
+  private readonly logger = new Logger(JobsService.name);
+
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
   ) {}
+
+  private resolveIsActive(isActive: boolean | undefined, endDate?: Date) {
+    if (isActive === false) return false;
+    if (!endDate) return isActive ?? false;
+
+    return new Date(endDate).getTime() >= Date.now() && (isActive ?? true);
+  }
+
+  private resolveUpdatedIsActive(
+    updateJobDto: UpdateJobDto,
+    currentJob?: Pick<Job, 'endDate' | 'isActive'> | null,
+  ) {
+    if (updateJobDto.isActive === false) {
+      return false;
+    }
+
+    if (updateJobDto.endDate) {
+      return this.resolveIsActive(true, updateJobDto.endDate);
+    }
+
+    return this.resolveIsActive(currentJob?.isActive, currentJob?.endDate);
+  }
+
+  private async deactivateExpiredJobs() {
+    const result = await this.jobModel.updateMany(
+      {
+        isActive: true,
+        endDate: { $lt: new Date() },
+      },
+      {
+        $set: { isActive: false },
+      },
+    );
+
+    if (result.modifiedCount > 0) {
+      this.logger.log(`Deactivated ${result.modifiedCount} expired jobs.`);
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async syncExpiredJobs() {
+    await this.deactivateExpiredJobs();
+  }
+
   async create(createJobDto: CreateJobDto, user: IUser) {
     const data = await this.jobModel.create({
       ...createJobDto,
+      isActive: this.resolveIsActive(
+        createJobDto.isActive,
+        createJobDto.endDate,
+      ),
       createdBy: {
         _id: user._id,
         name: user.email,
@@ -24,8 +75,16 @@ export class JobsService {
     return { _id: data._id, createdAt: data.createdAt };
   }
 
-  async findAll(currentPage: number, limit: number, qs: string, user: IUser) {
-    const { filter, sort, projection, population } = aqp(qs);
+  async findAll(
+    currentPage: number,
+    limit: number,
+    qs: string,
+    user: IUser,
+    onlyActiveJobs = false,
+  ) {
+    await this.deactivateExpiredJobs();
+
+    const { filter, sort, population } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
 
@@ -48,8 +107,18 @@ export class JobsService {
       filter['company._id'] = user.company._id;
     }
 
-    let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = +limit ? +limit : 10;
+    if (onlyActiveJobs) {
+      filter.isActive = true;
+
+      if (filter.endDate && typeof filter.endDate === 'object') {
+        filter.endDate = { ...filter.endDate, $gte: new Date() };
+      } else {
+        filter.endDate = { $gte: new Date() };
+      }
+    }
+
+    const offset = (+currentPage - 1) * +limit;
+    const defaultLimit = +limit ? +limit : 10;
 
     const totalItems = (await this.jobModel.find(filter)).length;
     const totalPages = Math.ceil(totalItems / defaultLimit);
@@ -58,7 +127,7 @@ export class JobsService {
       .find(filter)
       .skip(offset)
       .limit(defaultLimit)
-      .sort(sort as any)
+      .sort(sort as Record<string, 1 | -1>)
       .populate(population)
       .exec();
 
@@ -73,15 +142,24 @@ export class JobsService {
     };
   }
 
-  findOne(id: string) {
+  async findOne(id: string) {
+    await this.deactivateExpiredJobs();
     return this.jobModel.findById({ _id: id });
   }
 
-  update(id: string, updateJobDto: UpdateJobDto, user: IUser) {
+  async update(id: string, updateJobDto: UpdateJobDto, user: IUser) {
+    const currentJob = await this.jobModel.findById(id).select({
+      endDate: 1,
+      isActive: 1,
+    });
+
+    const nextIsActive = this.resolveUpdatedIsActive(updateJobDto, currentJob);
+
     return this.jobModel.updateOne(
       { _id: id },
       {
         ...updateJobDto,
+        isActive: nextIsActive,
         updatedBy: {
           _id: user._id,
           name: user.email,

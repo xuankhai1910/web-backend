@@ -3,12 +3,14 @@ import {
   Get,
   Post,
   Body,
+  Inject,
   Patch,
   Param,
   Delete,
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBody } from '@nestjs/swagger';
 import { JobsService } from './jobs.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
@@ -18,9 +20,10 @@ import type { Request } from 'express';
 
 @Controller('jobs')
 export class JobsController {
-  constructor(private readonly jobsService: JobsService) {}
+  constructor(@Inject(JobsService) private readonly jobsService: JobsService) {}
 
   @ResponseMessage('Job created successfully')
+  @ApiBody({ type: CreateJobDto })
   @Post()
   create(@Body() createJobDto: CreateJobDto, @User() user: IUser) {
     return this.jobsService.create(createJobDto, user);
@@ -36,7 +39,7 @@ export class JobsController {
     @User() user: IUser,
   ) {
     const qs = req.originalUrl.split('?')[1] ?? '';
-    return this.jobsService.findAll(+currentPage, +limit, qs, user);
+    return this.jobsService.findAll(+currentPage, +limit, qs, user, true);
   }
 
   @ResponseMessage('Lấy danh sách công việc thành công')
@@ -59,6 +62,7 @@ export class JobsController {
   }
 
   @ResponseMessage('Job updated successfully')
+  @ApiBody({ type: UpdateJobDto })
   @Patch(':id')
   update(
     @Param('id') id: string,
