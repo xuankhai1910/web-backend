@@ -30,11 +30,16 @@ export class CompaniesService {
     let offset = (+currentPage - 1) * +limit;
     let defaultLimit = +limit ? +limit : 10;
 
-    const totalItems = (await this.companyModel.find(filter)).length;
+    const collation = { locale: 'vi', strength: 1 };
+
+    const totalItems = (
+      await this.companyModel.find(filter).collation(collation)
+    ).length;
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.companyModel
       .find(filter)
+      .collation(collation)
       .skip(offset)
       .limit(defaultLimit)
       .sort(sort as any)

@@ -39,7 +39,7 @@ export class FilesController {
           }),
         )
         .addMaxSizeValidator({
-          maxSize: 1024 * 1000, //1MB
+          maxSize: 1024 * 1024 * 5, //5MB
         })
         .build({
           errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,

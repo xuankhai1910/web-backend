@@ -120,11 +120,15 @@ export class JobsService {
     const offset = (+currentPage - 1) * +limit;
     const defaultLimit = +limit ? +limit : 10;
 
-    const totalItems = (await this.jobModel.find(filter)).length;
+    const collation = { locale: 'vi', strength: 1 };
+
+    const totalItems = (await this.jobModel.find(filter).collation(collation))
+      .length;
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.jobModel
       .find(filter)
+      .collation(collation)
       .skip(offset)
       .limit(defaultLimit)
       .sort(sort as Record<string, 1 | -1>)

@@ -20,6 +20,7 @@ import MongooseDelete from 'mongoose-delete';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
+import { CvAnalysisModule } from './cv-analysis/cv-analysis.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { HealthModule } from './health/health.module';
     SubscribersModule,
     MailModule,
     HealthModule,
+    CvAnalysisModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,165 +1,169 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { CreateUserDto, RegisterUserDto } from "./dto/create-user.dto";
-import { UpdateUserDto } from "./dto/update-user.dto";
-import { InjectModel } from "@nestjs/mongoose";
-import { User, UserDocument } from "./schemas/user.schema";
-import mongoose, { Model } from "mongoose";
-import bcrypt, { compareSync } from "node_modules/bcryptjs";
-import type { SoftDeleteModel } from "mongoose-delete";
-import aqp from "api-query-params";
-import type { IUser } from "./users.interface";
-import { User as UserDecorator } from "src/decorators/customize";
-import { USER_ROLE } from "src/databases/sample";
-import { Role, RoleDocument } from "src/roles/schemas/role.schema";
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { CreateUserDto, RegisterUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { InjectModel } from '@nestjs/mongoose';
+import { User, UserDocument } from './schemas/user.schema';
+import mongoose, { Model } from 'mongoose';
+import bcrypt, { compareSync } from 'node_modules/bcryptjs';
+import type { SoftDeleteModel } from 'mongoose-delete';
+import aqp from 'api-query-params';
+import type { IUser } from './users.interface';
+import { User as UserDecorator } from 'src/decorators/customize';
+import { USER_ROLE } from 'src/databases/sample';
+import { Role, RoleDocument } from 'src/roles/schemas/role.schema';
 
 @Injectable()
 export class UsersService {
-	constructor(
-		@InjectModel(User.name) private userModel: SoftDeleteModel<UserDocument>,
-		@InjectModel(Role.name) private roleModel: SoftDeleteModel<RoleDocument>,
-	) {}
+  constructor(
+    @InjectModel(User.name) private userModel: SoftDeleteModel<UserDocument>,
+    @InjectModel(Role.name) private roleModel: SoftDeleteModel<RoleDocument>,
+  ) {}
 
-	getHashPassword = (password: string) => {
-		const salt = bcrypt.genSaltSync(10);
-		const hash = bcrypt.hashSync(password, salt);
-		return hash;
-	};
-	async create(createUserDto: CreateUserDto, @UserDecorator() User: IUser) {
-		const isExist = await this.userModel.findOne({
-			email: createUserDto.email,
-		});
-		if (isExist) {
-			throw new BadRequestException(
-				`Email: ${createUserDto.email} already exists`,
-			);
-		}
-		const hashPassword = this.getHashPassword(createUserDto.password);
-		const user = await this.userModel.create({
-			...createUserDto,
-			password: hashPassword,
-			createdBy: { _id: User._id, email: User.email },
-		});
-		return { _id: user._id, createdAt: user.createdAt };
-	}
+  getHashPassword = (password: string) => {
+    const salt = bcrypt.genSaltSync(10);
+    const hash = bcrypt.hashSync(password, salt);
+    return hash;
+  };
+  async create(createUserDto: CreateUserDto, @UserDecorator() User: IUser) {
+    const isExist = await this.userModel.findOne({
+      email: createUserDto.email,
+    });
+    if (isExist) {
+      throw new BadRequestException(
+        `Email: ${createUserDto.email} already exists`,
+      );
+    }
+    const hashPassword = this.getHashPassword(createUserDto.password);
+    const user = await this.userModel.create({
+      ...createUserDto,
+      password: hashPassword,
+      createdBy: { _id: User._id, email: User.email },
+    });
+    return { _id: user._id, createdAt: user.createdAt };
+  }
 
-	async register(registerUserDto: RegisterUserDto) {
-		const isExist = await this.userModel.findOne({
-			email: registerUserDto.email,
-		});
-		if (isExist) {
-			throw new BadRequestException(
-				`Email: ${registerUserDto.email} already exists`,
-			);
-		}
+  async register(registerUserDto: RegisterUserDto) {
+    const isExist = await this.userModel.findOne({
+      email: registerUserDto.email,
+    });
+    if (isExist) {
+      throw new BadRequestException(
+        `Email: ${registerUserDto.email} already exists`,
+      );
+    }
 
-		// fetch user role
-		const userRole = await this.roleModel.findOne({ name: USER_ROLE });
+    // fetch user role
+    const userRole = await this.roleModel.findOne({ name: USER_ROLE });
 
-		const hashPassword = this.getHashPassword(registerUserDto.password);
-		const user = await this.userModel.create({
-			...registerUserDto,
-			role: userRole?._id,
-			password: hashPassword,
-		} as any);
-		return user;
-	}
+    const hashPassword = this.getHashPassword(registerUserDto.password);
+    const user = await this.userModel.create({
+      ...registerUserDto,
+      role: userRole?._id,
+      password: hashPassword,
+    } as any);
+    return user;
+  }
 
-	async findAll(currentPage: number, limit: number, qs: string) {
-		const { filter, sort, projection, population } = aqp(qs);
-		delete filter.current;
-		delete filter.pageSize;
-		let offset = (+currentPage - 1) * +limit;
-		let defaultLimit = +limit ? +limit : 10;
+  async findAll(currentPage: number, limit: number, qs: string) {
+    const { filter, sort, projection, population } = aqp(qs);
+    delete filter.current;
+    delete filter.pageSize;
+    let offset = (+currentPage - 1) * +limit;
+    let defaultLimit = +limit ? +limit : 10;
 
-		const totalItems = (await this.userModel.find(filter)).length;
-		const totalPages = Math.ceil(totalItems / defaultLimit);
+    const collation = { locale: 'vi', strength: 1 };
 
-		const result = await this.userModel
-			.find(filter)
-			.skip(offset)
-			.limit(defaultLimit)
-			.sort(sort as any)
-			.select("-password")
-			.populate(population)
-			.exec();
+    const totalItems = (await this.userModel.find(filter).collation(collation))
+      .length;
+    const totalPages = Math.ceil(totalItems / defaultLimit);
 
-		return {
-			meta: {
-				current: currentPage, //trang hiện tại
-				pageSize: limit, //số lượng bản ghi đã lấy
-				pages: totalPages, //tổng số trang với điều kiện query
-				total: totalItems, // tổng số phần tử (số bản ghi)
-			},
-			result, //kết quả query
-		};
-	}
+    const result = await this.userModel
+      .find(filter)
+      .collation(collation)
+      .skip(offset)
+      .limit(defaultLimit)
+      .sort(sort as any)
+      .select('-password')
+      .populate(population)
+      .exec();
 
-	findOne(id: string) {
-		if (!mongoose.Types.ObjectId.isValid(id)) {
-			return new Error("Invalid user ID");
-		}
-		return this.userModel
-			.findOne({
-				_id: id,
-			})
-			.select("-password")
-			.populate({ path: "role", select: { name: 1, _id: 1 } });
-	}
+    return {
+      meta: {
+        current: currentPage, //trang hiện tại
+        pageSize: limit, //số lượng bản ghi đã lấy
+        pages: totalPages, //tổng số trang với điều kiện query
+        total: totalItems, // tổng số phần tử (số bản ghi)
+      },
+      result, //kết quả query
+    };
+  }
 
-	findOneByUsername(username: string) {
-		return this.userModel
-			.findOne({
-				email: username,
-			})
-			.populate({ path: "role", select: { name: 1 } });
-	}
+  findOne(id: string) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return new Error('Invalid user ID');
+    }
+    return this.userModel
+      .findOne({
+        _id: id,
+      })
+      .select('-password')
+      .populate({ path: 'role', select: { name: 1, _id: 1 } });
+  }
 
-	isValidPassword(password: string, hash: string) {
-		return compareSync(password, hash);
-	}
+  findOneByUsername(username: string) {
+    return this.userModel
+      .findOne({
+        email: username,
+      })
+      .populate({ path: 'role', select: { name: 1 } });
+  }
 
-	async update(
-		updateUserDto: UpdateUserDto,
-		@UserDecorator() user: IUser,
-		_id: string,
-	) {
-		if (!mongoose.Types.ObjectId.isValid(_id)) {
-			return new BadRequestException(`Invalid user ID : ${_id}`);
-		}
-		return this.userModel.updateOne(
-			{
-				_id: _id,
-			},
-			{
-				...updateUserDto,
-				updatedBy: { _id: user._id, email: user.email },
-			},
-		);
-	}
+  isValidPassword(password: string, hash: string) {
+    return compareSync(password, hash);
+  }
 
-	async remove(id: string, user: IUser) {
-		if (!mongoose.Types.ObjectId.isValid(id)) {
-			throw new BadRequestException("Invalid user id");
-		}
-		const foundUser = await this.userModel.findById(id);
-		if (foundUser && foundUser?.email === "admin@gmail.com") {
-			throw new BadRequestException("Cannot delete admin email");
-		}
-		await this.userModel.updateOne(
-			{ _id: id },
-			{ deletedBy: { _id: user._id, email: user.email } },
-		);
-		return this.userModel.delete({ _id: id });
-	}
+  async update(
+    updateUserDto: UpdateUserDto,
+    @UserDecorator() user: IUser,
+    _id: string,
+  ) {
+    if (!mongoose.Types.ObjectId.isValid(_id)) {
+      return new BadRequestException(`Invalid user ID : ${_id}`);
+    }
+    return this.userModel.updateOne(
+      {
+        _id: _id,
+      },
+      {
+        ...updateUserDto,
+        updatedBy: { _id: user._id, email: user.email },
+      },
+    );
+  }
 
-	updateUserToken = async (refreshToken: string, _id: string) => {
-		return await this.userModel.updateOne({ _id }, { refreshToken });
-	};
+  async remove(id: string, user: IUser) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    const foundUser = await this.userModel.findById(id);
+    if (foundUser && foundUser?.email === 'admin@gmail.com') {
+      throw new BadRequestException('Cannot delete admin email');
+    }
+    await this.userModel.updateOne(
+      { _id: id },
+      { deletedBy: { _id: user._id, email: user.email } },
+    );
+    return this.userModel.delete({ _id: id });
+  }
 
-	findUserByToken = async (refreshToken: string) => {
-		return await this.userModel.findOne({ refreshToken }).populate({
-			path: "role",
-			select: { name: 1 },
-		});
-	};
+  updateUserToken = async (refreshToken: string, _id: string) => {
+    return await this.userModel.updateOne({ _id }, { refreshToken });
+  };
+
+  findUserByToken = async (refreshToken: string) => {
+    return await this.userModel.findOne({ refreshToken }).populate({
+      path: 'role',
+      select: { name: 1 },
+    });
+  };
 }

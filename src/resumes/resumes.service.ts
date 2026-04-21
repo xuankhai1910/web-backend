@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CreateResumeDto, CreateUserCvDto } from './dto/create-resume.dto';
 import { UpdateResumeDto } from './dto/update-resume.dto';
 import type { IUser } from 'src/users/users.interface';
@@ -7,12 +7,16 @@ import { Resume, ResumeDocument } from './schemas/resume.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import mongoose, { mongo } from 'mongoose';
 import aqp from 'api-query-params';
+import { CvAnalysisService } from 'src/cv-analysis/cv-analysis.service';
 
 @Injectable()
 export class ResumesService {
+  private readonly logger = new Logger(ResumesService.name);
+
   constructor(
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
+    private cvAnalysisService: CvAnalysisService,
   ) {}
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
     const { url, companyId, jobId } = createUserCvDto;
@@ -33,6 +37,11 @@ export class ResumesService {
           updatedBy: { _id: user._id, email: user.email },
         },
       ],
+    });
+
+    // Auto-analyze CV in background (fire-and-forget)
+    this.cvAnalysisService.analyzeCv(url, user).catch((err) => {
+      this.logger.warn(`Auto CV analysis failed: ${err.message}`);
     });
 
     return {
@@ -59,11 +68,16 @@ export class ResumesService {
     let offset = (+currentPage - 1) * +limit;
     let defaultLimit = +limit ? +limit : 10;
 
-    const totalItems = (await this.resumeModel.find(filter)).length;
+    const collation = { locale: 'vi', strength: 1 };
+
+    const totalItems = (
+      await this.resumeModel.find(filter).collation(collation)
+    ).length;
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.resumeModel
       .find(filter)
+      .collation(collation)
       .skip(offset)
       .limit(defaultLimit)
       .sort(sort as any)
