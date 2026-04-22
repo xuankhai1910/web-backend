@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { CvAnalysis, CvAnalysisDocument } from './schemas/cv-analysis.schema';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
+import { User, UserDocument } from 'src/users/schemas/user.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import type { IUser } from 'src/users/users.interface';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -33,6 +34,7 @@ interface ScoredJob {
   matchedSkills: string[];
   breakdown: {
     skillScore: number;
+    titleScore: number;
     levelScore: number;
     locationScore: number;
   };
@@ -48,6 +50,8 @@ export class CvAnalysisService implements OnModuleInit {
     private cvAnalysisModel: SoftDeleteModel<CvAnalysisDocument>,
     @InjectModel(Job.name)
     private jobModel: SoftDeleteModel<JobDocument>,
+    @InjectModel(User.name)
+    private userModel: SoftDeleteModel<UserDocument>,
     private configService: ConfigService,
   ) {}
 
@@ -112,97 +116,154 @@ export class CvAnalysisService implements OnModuleInit {
 
     const base64Data = fileBuffer.toString('base64');
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const response = await this.genAI.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType,
-                    data: base64Data,
+    // Model fallback chain — each model has its own free-tier daily quota.
+    // If one hits RESOURCE_EXHAUSTED, immediately try the next.
+    const modelChain = [
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+    ];
+
+    let lastError: any = null;
+
+    for (const modelName of modelChain) {
+      let modelExhausted = false;
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const response = await this.genAI.models.generateContent({
+            model: modelName,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: base64Data,
+                    },
                   },
-                },
-                {
-                  text: `Analyze this CV/Resume thoroughly and extract the following information in JSON format.
-              
+                  {
+                    text: `You are an expert HR assistant. Analyze this CV/Resume thoroughly and extract the following information in JSON format.
+
 Rules:
-- "skills": Extract ALL technical skills, programming languages, frameworks, libraries, tools, databases, cloud services, methodologies (Agile, Scrum...), and relevant soft skills mentioned anywhere in the CV — including in project descriptions, work experience, education, and certifications. Also infer closely related skills (e.g., if they use "React" also add "javascript", "html", "css"). Normalize names (e.g., "ReactJS" → "react", "NodeJS" → "node.js", "Mongo" → "mongodb"). Return as lowercase array. Be comprehensive — more is better.
-- "level": Classify the candidate level based on experience and skills. One of: "INTERN", "JUNIOR", "MID", "SENIOR", "LEAD".
-- "yearsOfExperience": Total years of professional experience as a number. If fresh graduate, return 0.
-- "education": Highest education level (e.g., "Đại học", "Cao đẳng", "Thạc sĩ").
+- "skills": Extract ALL technical skills, programming languages, frameworks, libraries, tools, databases, cloud services, methodologies (Agile, Scrum...), and relevant soft skills mentioned anywhere in the CV — including in project descriptions, work experience, education, and certifications. Also infer closely related skills (e.g., if they use "React" also add "javascript", "html", "css"; if "Spring Boot" add "java"; if "Django" add "python"). Normalize names (e.g., "ReactJS" → "react", "NodeJS" → "node.js", "Mongo" → "mongodb", "VueJS" → "vue"). Return as lowercase array. Be comprehensive — more is better.
+- "level": Classify the candidate level. One of: "INTERN", "JUNIOR", "MID", "SENIOR", "LEAD". Fresh graduate / student → "INTERN". 0-2 years → "JUNIOR". 2-4 years → "MID". 4-7 years → "SENIOR". 7+ years or team lead → "LEAD".
+- "yearsOfExperience": Total years of professional experience as a number. If fresh graduate / student, return 0.
+
+- "education": **MANDATORY FIELD — NEVER return empty if the CV has any education info.** Look carefully for sections titled "HỌC VẤN", "EDUCATION", "ĐÀO TẠO", "TRÌNH ĐỘ HỌC VẤN", "ACADEMIC", or similar. Also check the header area. Output the HIGHEST degree the candidate has completed or is pursuing, using these normalized values:
+  * "Tiến sĩ" — if CV mentions: PhD, Doctorate, Tiến sĩ, Ph.D
+  * "Thạc sĩ" — if CV mentions: Master, M.Sc, MSc, MA, MBA, Thạc sĩ
+  * "Đại học" — if CV mentions ANY of: Bachelor, B.Sc, BSc, BA, Cử nhân, Kỹ sư, Engineer, University, Đại học, Học viện, or a university name (e.g., "Đại học Bách Khoa Hà Nội", "Hanoi University", "FPT University", "HUST", "NEU", "UET"). Even if the candidate is still studying (năm cuối, final year student), return "Đại học".
+  * "Cao đẳng" — if CV mentions: College, Cao đẳng
+  * "Trung cấp" — if CV mentions: Vocational, Trung cấp
+  * "Trung học phổ thông" — only if highest is high school
+  * "" (empty) — ONLY if the CV truly has no education information at all
+  Examples:
+    CV says "Đại học Bách Khoa Hà Nội, 2022-2026" → "Đại học"
+    CV says "Master of Computer Science, Harvard" → "Thạc sĩ"
+    CV says "Sinh viên năm cuối FPT University" → "Đại học"
+
 - "preferredLocations": Extract the candidate's address, city, or any mentioned preferred work locations. Look for address, city names like "Hà Nội", "Hồ Chí Minh", "Đà Nẵng", district names, or any geographic info. If address says "Đông Anh, Hà Nội" → return ["Hà Nội"]. Always try to extract at least the city. If truly none found, return empty array.
 - "summary": A brief 1-2 sentence professional summary of the candidate.
 
-Important: Only extract factual information from the CV. Do not fabricate information not present. But DO infer related skills from context.`,
-                },
-              ],
-            },
-          ],
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                skills: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                level: {
-                  type: Type.STRING,
-                  enum: ['INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD'],
-                },
-                yearsOfExperience: { type: Type.NUMBER },
-                education: { type: Type.STRING },
-                preferredLocations: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                summary: { type: Type.STRING },
+Important: Only extract factual information from the CV. Do not fabricate information not present. But DO infer related skills from context, and DO normalize education values even if the CV uses a different wording.`,
+                  },
+                ],
               },
-              required: [
-                'skills',
-                'level',
-                'yearsOfExperience',
-                'education',
-                'summary',
-              ],
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  skills: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  level: {
+                    type: Type.STRING,
+                    enum: ['INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD'],
+                  },
+                  yearsOfExperience: { type: Type.NUMBER },
+                  education: { type: Type.STRING },
+                  preferredLocations: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  summary: { type: Type.STRING },
+                },
+                required: [
+                  'skills',
+                  'level',
+                  'yearsOfExperience',
+                  'education',
+                  'summary',
+                ],
+              },
             },
-          },
-        });
+          });
 
-        const text = response.text;
-        if (!text) {
-          throw new BadRequestException('Gemini returned empty response');
+          const text = response.text;
+          if (!text) {
+            throw new BadRequestException('Gemini returned empty response');
+          }
+          const parsed: ExtractedCvData = JSON.parse(text);
+
+          parsed.skills = parsed.skills.map((s) => s.toLowerCase().trim());
+          parsed.preferredLocations = parsed.preferredLocations ?? [];
+
+          this.logger.log(`Gemini model '${modelName}' succeeded`);
+          return parsed;
+        } catch (error) {
+          lastError = error;
+          const msg = error?.message || '';
+          const is429 =
+            error?.status === 429 ||
+            msg.includes('429') ||
+            msg.includes('RESOURCE_EXHAUSTED');
+
+          // Daily quota exhausted (limit: 0) → skip this model entirely
+          const isDailyExhausted =
+            is429 &&
+            (msg.includes('limit: 0') ||
+              msg.includes('PerDay') ||
+              msg.includes('RequestsPerDay'));
+
+          if (isDailyExhausted) {
+            this.logger.warn(
+              `Model '${modelName}' daily quota exhausted, switching to next model...`,
+            );
+            modelExhausted = true;
+            break; // break inner retry loop, try next model
+          }
+
+          if (is429 && attempt < retries) {
+            const delay = (attempt + 1) * 30_000; // 30s, 60s
+            this.logger.warn(
+              `Gemini '${modelName}' rate limited (RPM). Retry ${attempt + 1}/${retries} in ${delay / 1000}s...`,
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+
+          if (is429) {
+            // Exhausted retries on this model → try next model
+            this.logger.warn(
+              `Model '${modelName}' still 429 after ${retries} retries, switching to next model...`,
+            );
+            modelExhausted = true;
+            break;
+          }
+
+          // Non-429 error → don't try other models, fail fast
+          throw error;
         }
-        const parsed: ExtractedCvData = JSON.parse(text);
-
-        parsed.skills = parsed.skills.map((s) => s.toLowerCase().trim());
-        parsed.preferredLocations = parsed.preferredLocations ?? [];
-
-        return parsed;
-      } catch (error) {
-        const is429 =
-          error?.status === 429 ||
-          error?.message?.includes('429') ||
-          error?.message?.includes('RESOURCE_EXHAUSTED');
-
-        if (is429 && attempt < retries) {
-          const delay = (attempt + 1) * 30_000; // 30s, 60s
-          this.logger.warn(
-            `Gemini rate limited. Retry ${attempt + 1}/${retries} in ${delay / 1000}s...`,
-          );
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-        throw error;
       }
+      if (!modelExhausted) break; // success branch already returned
     }
 
-    throw new Error('Gemini analysis exhausted all retries');
+    throw lastError ?? new Error('Gemini analysis exhausted all models');
   }
 
   // ─── KEYWORD FALLBACK ─────────────────────────────────────
@@ -231,7 +292,10 @@ Important: Only extract factual information from the CV. Do not fabricate inform
         const parser = new PDFParse({ data: buffer });
         await (parser as any).load();
         const result = await parser.getText();
-        text = result.pages.map((p: { text: string }) => p.text).join('\n').toLowerCase();
+        text = result.pages
+          .map((p: { text: string }) => p.text)
+          .join('\n')
+          .toLowerCase();
       } else {
         text = buffer.toString('utf-8').toLowerCase();
       }
@@ -250,15 +314,36 @@ Important: Only extract factual information from the CV. Do not fabricate inform
 
     // Extract locations from text
     const vietnamCities = [
-      'hà nội', 'hồ chí minh', 'đà nẵng', 'hải phòng', 'cần thơ',
-      'biên hòa', 'huế', 'nha trang', 'bình dương', 'đồng nai',
-      'bắc ninh', 'hải dương', 'nam định', 'thái nguyên', 'vũng tàu',
-      'quảng ninh', 'thanh hóa', 'nghệ an', 'đắk lắk', 'lâm đồng',
+      'hà nội',
+      'hồ chí minh',
+      'đà nẵng',
+      'hải phòng',
+      'cần thơ',
+      'biên hòa',
+      'huế',
+      'nha trang',
+      'bình dương',
+      'đồng nai',
+      'bắc ninh',
+      'hải dương',
+      'nam định',
+      'thái nguyên',
+      'vũng tàu',
+      'quảng ninh',
+      'thanh hóa',
+      'nghệ an',
+      'đắk lắk',
+      'lâm đồng',
     ];
     const detectedLocations: string[] = [];
     for (const city of vietnamCities) {
       if (text.includes(city)) {
-        detectedLocations.push(city.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+        detectedLocations.push(
+          city
+            .split(' ')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' '),
+        );
       }
     }
 
@@ -275,7 +360,93 @@ Important: Only extract factual information from the CV. Do not fabricate inform
   // ─── SCORING ENGINE ───────────────────────────────────────
 
   /**
-   * Jaccard similarity: |A ∩ B| / |A ∪ B|
+   * Aliases map: canonical skill → list of equivalent spellings.
+   * Keep keys/values lowercase, already normalized (no dots/spaces).
+   */
+  private static readonly SKILL_ALIASES: Record<string, string[]> = {
+    javascript: ['js', 'ecmascript'],
+    typescript: ['ts'],
+    'node.js': ['node', 'nodejs'],
+    react: ['reactjs'],
+    'react native': ['reactnative'],
+    'next.js': ['next', 'nextjs'],
+    'nest.js': ['nest', 'nestjs'],
+    'vue.js': ['vue', 'vuejs'],
+    'express.js': ['express', 'expressjs'],
+    mongodb: ['mongo'],
+    postgresql: ['postgres', 'psql'],
+    'c#': ['csharp'],
+    'c++': ['cpp', 'cplusplus'],
+    'spring boot': ['springboot', 'spring'],
+    'asp.net': ['aspnet', 'asp'],
+    'tailwind css': ['tailwind', 'tailwindcss'],
+    'material ui': ['materialui', 'mui'],
+    kubernetes: ['k8s'],
+    'amazon web services': ['aws'],
+    'google cloud platform': ['gcp'],
+  };
+
+  /**
+   * Normalize a skill for matching: lowercase, strip punctuation/whitespace.
+   * Returns a canonical token (no "js"/"framework" stripping — that's handled
+   * by the alias map now).
+   */
+  private normalizeSkill(skill: string): string {
+    return skill
+      .toLowerCase()
+      .trim()
+      .replace(/[.\s_-]+/g, '');
+  }
+
+  /**
+   * Return the canonical form of a skill based on the alias map.
+   * If no alias matches, return the normalized skill as-is.
+   */
+  private canonicalizeSkill(skill: string): string {
+    const normalized = this.normalizeSkill(skill);
+    for (const [canonical, aliases] of Object.entries(
+      CvAnalysisService.SKILL_ALIASES,
+    )) {
+      const canonicalNorm = this.normalizeSkill(canonical);
+      if (canonicalNorm === normalized) return canonicalNorm;
+      if (aliases.some((a) => this.normalizeSkill(a) === normalized)) {
+        return canonicalNorm;
+      }
+    }
+    return normalized;
+  }
+
+  /**
+   * Exact match between a CV skill and a Job skill after canonicalization.
+   * Uses alias table so "nodejs" == "node.js" but "java" != "javascript".
+   */
+  private isSkillMatch(cvSkill: string, jobSkill: string): boolean {
+    const a = this.canonicalizeSkill(cvSkill);
+    const b = this.canonicalizeSkill(jobSkill);
+    if (!a || !b) return false;
+    return a === b;
+  }
+
+  /**
+   * Skill similarity = (number of job-skills the candidate has) / (total job-skills).
+   * More intuitive than Jaccard for recommendations: doesn't penalize the CV
+   * for having extra skills beyond what the job requires.
+   */
+  private skillSimilarity(cvSkills: string[], jobSkills: string[]): number {
+    if (!jobSkills || jobSkills.length === 0) return 0;
+    if (!cvSkills || cvSkills.length === 0) return 0;
+
+    let matched = 0;
+    for (const js of jobSkills) {
+      if (cvSkills.some((cs) => this.isSkillMatch(cs, js))) {
+        matched++;
+      }
+    }
+    return matched / jobSkills.length;
+  }
+
+  /**
+   * Jaccard similarity: |A ∩ B| / |A ∪ B| — kept for reference / fallback.
    */
   private jaccardSimilarity(setA: string[], setB: string[]): number {
     const a = new Set(setA.map((s) => s.toLowerCase().trim()));
@@ -292,11 +463,50 @@ Important: Only extract factual information from the CV. Do not fabricate inform
   }
 
   /**
-   * Get the matched skills between CV and Job
+   * Get matched skills between CV and Job (uses fuzzy matching).
    */
   private getMatchedSkills(cvSkills: string[], jobSkills: string[]): string[] {
-    const cvSet = new Set(cvSkills.map((s) => s.toLowerCase().trim()));
-    return jobSkills.filter((s) => cvSet.has(s.toLowerCase().trim()));
+    return jobSkills.filter((js) =>
+      cvSkills.some((cs) => this.isSkillMatch(cs, js)),
+    );
+  }
+
+  /**
+   * Title match: how many of the candidate's skills appear as tokens in the
+   * job title. e.g., job "Senior React Developer" + CV has "react" → hit.
+   * Matches on word boundaries to avoid "java" matching "javascript".
+   */
+  private titleMatchScore(cvSkills: string[], jobName: string): number {
+    if (!jobName || !cvSkills || cvSkills.length === 0) return 0;
+    // Tokenize title: keep letters/digits/+# as parts of tokens
+    const titleTokens = jobName
+      .toLowerCase()
+      .split(/[^a-z0-9+#.]+/)
+      .map((t) => this.normalizeSkill(t))
+      .filter((t) => t.length >= 2);
+    const titleSet = new Set(titleTokens);
+
+    let hits = 0;
+    for (const skill of cvSkills) {
+      const canonical = this.canonicalizeSkill(skill);
+      if (canonical.length < 2) continue;
+      // Direct canonical match against title tokens
+      if (titleSet.has(canonical)) {
+        hits++;
+        continue;
+      }
+      // Also try aliases of the canonical form against title tokens
+      const aliases =
+        CvAnalysisService.SKILL_ALIASES[
+          Object.keys(CvAnalysisService.SKILL_ALIASES).find(
+            (k) => this.normalizeSkill(k) === canonical,
+          ) ?? ''
+        ];
+      if (aliases?.some((a) => titleSet.has(this.normalizeSkill(a)))) {
+        hits++;
+      }
+    }
+    return Math.min(1, hits / 2);
   }
 
   /**
@@ -339,16 +549,23 @@ Important: Only extract factual information from the CV. Do not fabricate inform
   }
 
   /**
-   * Compute final recommendation score using weighted sum
-   * score = 0.6 * jaccard + 0.25 * levelMatch + 0.15 * locationMatch
+   * Compute final recommendation score using weighted sum.
+   *   score = 0.50 * skillScore      (fuzzy skill coverage)
+   *         + 0.15 * titleScore      (CV skills appearing in job title)
+   *         + 0.20 * levelMatch
+   *         + 0.15 * locationMatch
    */
   private computeScore(
     extractedData: ExtractedCvData,
     job: JobDocument,
   ): ScoredJob {
-    const skillScore = this.jaccardSimilarity(
+    const skillScore = this.skillSimilarity(
       extractedData.skills,
       job.skills || [],
+    );
+    const titleScore = this.titleMatchScore(
+      extractedData.skills,
+      job.name || '',
     );
     const levelScore = this.levelMatchScore(
       extractedData.level,
@@ -359,7 +576,11 @@ Important: Only extract factual information from the CV. Do not fabricate inform
       job.location || '',
     );
 
-    const score = 0.6 * skillScore + 0.25 * levelScore + 0.15 * locationScore;
+    const score =
+      0.5 * skillScore +
+      0.15 * titleScore +
+      0.2 * levelScore +
+      0.15 * locationScore;
 
     return {
       job,
@@ -370,6 +591,7 @@ Important: Only extract factual information from the CV. Do not fabricate inform
       ),
       breakdown: {
         skillScore: Math.round(skillScore * 100) / 100,
+        titleScore: Math.round(titleScore * 100) / 100,
         levelScore: Math.round(levelScore * 100) / 100,
         locationScore: Math.round(locationScore * 100) / 100,
       },
@@ -432,10 +654,11 @@ Important: Only extract factual information from the CV. Do not fabricate inform
   }
 
   /**
-   * Get job recommendations based on the latest CV analysis for the user
+   * Get job recommendations based on the user's recommendation CV analysis.
+   * If analysisId is not provided, looks up the user's `recommendationCv.analysisId`.
    */
   async getRecommendedJobs(user: IUser, limit = 10, analysisId?: string) {
-    // Get analysis (specific or latest)
+    // Get analysis (specific or from user.recommendationCv)
     let analysis: CvAnalysisDocument | null = null;
     if (analysisId) {
       analysis = await this.cvAnalysisModel.findOne({
@@ -443,14 +666,24 @@ Important: Only extract factual information from the CV. Do not fabricate inform
         userId: user._id,
       });
     } else {
-      analysis = await this.cvAnalysisModel
-        .findOne({ userId: user._id })
-        .sort({ analyzedAt: -1 });
+      // Look up user's recommendation CV
+      const userDoc = await this.userModel
+        .findById(user._id)
+        .select('recommendationCv')
+        .lean();
+
+      const recAnalysisId = userDoc?.recommendationCv?.analysisId;
+      if (recAnalysisId) {
+        analysis = await this.cvAnalysisModel.findOne({
+          _id: recAnalysisId,
+          userId: user._id,
+        });
+      }
     }
 
     if (!analysis) {
       throw new BadRequestException(
-        'Chưa có CV nào được phân tích. Vui lòng upload CV trước.',
+        'Bạn chưa thiết lập CV để gợi ý việc làm. Vui lòng upload hoặc chọn CV trước.',
       );
     }
 
@@ -481,7 +714,9 @@ Important: Only extract factual information from the CV. Do not fabricate inform
           job as unknown as JobDocument,
         ),
       )
-      .filter((sj) => sj.breakdown.skillScore > 0.5)
+      .filter(
+        (sj) => sj.breakdown.skillScore > 0.3 || sj.breakdown.titleScore > 0.5,
+      )
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
@@ -512,6 +747,13 @@ Important: Only extract factual information from the CV. Do not fabricate inform
     return this.cvAnalysisModel
       .find({ userId: user._id })
       .sort({ analyzedAt: -1 });
+  }
+
+  /**
+   * Find a CV analysis by its id
+   */
+  async findById(id: string) {
+    return this.cvAnalysisModel.findById(id);
   }
 
   /**

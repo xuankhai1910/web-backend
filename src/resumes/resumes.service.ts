@@ -7,7 +7,6 @@ import { Resume, ResumeDocument } from './schemas/resume.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import mongoose, { mongo } from 'mongoose';
 import aqp from 'api-query-params';
-import { CvAnalysisService } from 'src/cv-analysis/cv-analysis.service';
 
 @Injectable()
 export class ResumesService {
@@ -16,7 +15,6 @@ export class ResumesService {
   constructor(
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
-    private cvAnalysisService: CvAnalysisService,
   ) {}
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
     const { url, companyId, jobId } = createUserCvDto;
@@ -37,11 +35,6 @@ export class ResumesService {
           updatedBy: { _id: user._id, email: user.email },
         },
       ],
-    });
-
-    // Auto-analyze CV in background (fire-and-forget)
-    this.cvAnalysisService.analyzeCv(url, user).catch((err) => {
-      this.logger.warn(`Auto CV analysis failed: ${err.message}`);
     });
 
     return {

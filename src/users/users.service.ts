@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+  Inject,
+} from '@nestjs/common';
 import { CreateUserDto, RegisterUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { InjectModel } from '@nestjs/mongoose';
@@ -11,12 +17,16 @@ import type { IUser } from './users.interface';
 import { User as UserDecorator } from 'src/decorators/customize';
 import { USER_ROLE } from 'src/databases/sample';
 import { Role, RoleDocument } from 'src/roles/schemas/role.schema';
+import { CvAnalysisService } from 'src/cv-analysis/cv-analysis.service';
+import { SetRecommendationCvDto } from './dto/recommendation-cv.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: SoftDeleteModel<UserDocument>,
     @InjectModel(Role.name) private roleModel: SoftDeleteModel<RoleDocument>,
+    @Inject(forwardRef(() => CvAnalysisService))
+    private cvAnalysisService: CvAnalysisService,
   ) {}
 
   getHashPassword = (password: string) => {
@@ -166,4 +176,71 @@ export class UsersService {
       select: { name: 1 },
     });
   };
+
+  // ─── RECOMMENDATION CV ──────────────────────────────────
+
+  /**
+   * Set (or update) the user's recommendation CV. Accepts a URL from either
+   * a newly uploaded file or an existing resume. Triggers CV analysis.
+   */
+  async setRecommendationCv(dto: SetRecommendationCvDto, user: IUser) {
+    const { url, source = 'upload' } = dto;
+
+    // Analyze the CV (uses cache by file hash, so safe to re-call)
+    const analysis = await this.cvAnalysisService.analyzeCv(url, user);
+
+    const recommendationCv = {
+      resumeUrl: url,
+      analysisId: analysis._id,
+      source,
+      updatedAt: new Date(),
+    };
+
+    await this.userModel.updateOne(
+      { _id: user._id },
+      {
+        recommendationCv,
+        updatedBy: { _id: user._id, email: user.email },
+      },
+    );
+
+    return {
+      recommendationCv,
+      analysis,
+    };
+  }
+
+  /**
+   * Get the current recommendation CV for the user (with its analysis).
+   */
+  async getRecommendationCv(user: IUser) {
+    const foundUser = await this.userModel
+      .findById(user._id)
+      .select('recommendationCv')
+      .lean();
+
+    if (!foundUser?.recommendationCv?.analysisId) {
+      return { recommendationCv: null, analysis: null };
+    }
+
+    const analysis = await this.cvAnalysisService.findById(
+      foundUser.recommendationCv.analysisId.toString(),
+    );
+
+    return {
+      recommendationCv: foundUser.recommendationCv,
+      analysis,
+    };
+  }
+
+  /**
+   * Clear the user's recommendation CV.
+   */
+  async removeRecommendationCv(user: IUser) {
+    await this.userModel.updateOne(
+      { _id: user._id },
+      { $unset: { recommendationCv: '' } },
+    );
+    return { deleted: true };
+  }
 }

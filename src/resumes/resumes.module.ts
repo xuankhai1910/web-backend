@@ -3,14 +3,12 @@ import { ResumesService } from './resumes.service';
 import { ResumesController } from './resumes.controller';
 import { Resume, ResumeSchema } from './schemas/resume.schema';
 import { MongooseModule } from '@nestjs/mongoose';
-import { CvAnalysisModule } from 'src/cv-analysis/cv-analysis.module';
 
 @Module({
   controllers: [ResumesController],
   providers: [ResumesService],
   imports: [
     MongooseModule.forFeature([{ name: Resume.name, schema: ResumeSchema }]),
-    CvAnalysisModule,
   ],
 })
 export class ResumesModule {}
