@@ -5,7 +5,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+# Ưu tiên npm ci (reproducible); nếu lockfile lệch thì fallback sang npm install
+RUN npm ci || npm install
 
 COPY . .
 RUN npm run build
