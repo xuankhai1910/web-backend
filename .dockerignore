@@ -15,7 +15,7 @@ README.md
 *.md
 test
 upload
-public/images/company
+# Ảnh user upload sẽ nằm trên Docker volume, không cần build vào image
 public/images/resume
 public/images/pdf
 **/*.log
