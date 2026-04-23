@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  nest-backend:
+    build: .
+    container_name: web-backend-prod
+    restart: always
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    volumes:
+      # File user upload (CV, ảnh công ty, ảnh resume) - KHÔNG MẤT khi rebuild
+      - uploads_images:/app/public/images
+      - uploads_tmp:/app/upload
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/v1/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  uploads_images:
+  uploads_tmp:
