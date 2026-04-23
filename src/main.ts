@@ -53,7 +53,13 @@ async function bootstrap() {
   });
 
   //Config helmet
-  app.use(helmet());
+  // Tắt CSP vì nó chặn inline script/style của Swagger UI -> trang trắng
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   const config = new DocumentBuilder()
     .setTitle('NestJS API Recruitment for graduation project')
     .setDescription('API description')
