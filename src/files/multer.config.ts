@@ -46,21 +46,28 @@ export class MulterConfigService implements MulterOptionsFactory {
           cb(null, join(this.getRootPath(), `public/images/${folder}`));
         },
         filename: (req, file, cb) => {
-          //get image extension
-          let extName = path.extname(file.originalname);
+          // Multer decode originalname theo latin1 -> re-encode sang utf8
+          // để các ký tự tiếng Việt không bị garble
+          const originalName = Buffer.from(
+            file.originalname,
+            'latin1',
+          ).toString('utf8');
 
-          //get image's name (without extension)
-          let baseName = path.basename(file.originalname, extName);
+          const extName = path.extname(originalName).toLowerCase();
+          const baseName = path.basename(originalName, extName);
 
-          // Sanitize: remove non-ASCII chars to avoid encoding issues
-          let safeName = baseName
+          // Bỏ dấu tiếng Việt, lower case, thay mọi ký tự không hợp lệ bằng "-"
+          const safeName = baseName
             .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '') // remove diacritics
+            .replace(/[\u0300-\u036f]/g, '')
             .replace(/đ/g, 'd')
-            .replace(/Đ/g, 'D')
-            .replace(/[^a-zA-Z0-9_\-\.]/g, '_'); // replace non-ASCII with _
+            .replace(/Đ/g, 'd')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-') // mọi thứ không phải a-z/0-9 -> "-"
+            .replace(/^-+|-+$/g, '') // bỏ "-" ở đầu/cuối
+            .slice(0, 80); // giới hạn độ dài
 
-          let finalName = `${safeName}-${Date.now()}${extName}`;
+          const finalName = `${safeName || 'file'}-${Date.now()}${extName}`;
           cb(null, finalName);
         },
       }),
