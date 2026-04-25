@@ -57,8 +57,11 @@ export class AuthService {
     await this.usersService.updateUserToken(refresh_token, _id.toString());
 
     //Set refresh token in cookies
+    const isProd = this.configService.get<string>('NODE_ENV') === 'production';
     response.cookie('refresh_token', refresh_token, {
       httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
       maxAge: Number(
         ms(this.configService.get<string>('JWT_REFRESH_EXPIRE') as any),
       ),
@@ -117,10 +120,14 @@ export class AuthService {
         const temp = await this.rolesService.findOne(userRole._id);
 
         //Set refresh token in cookies
+        const isProd =
+          this.configService.get<string>('NODE_ENV') === 'production';
         response.clearCookie('refresh_token');
 
         response.cookie('refresh_token', refresh_token, {
           httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? 'none' : 'lax',
           maxAge: Number(
             ms(this.configService.get<string>('JWT_REFRESH_EXPIRE') as any),
           ),
