@@ -7,6 +7,7 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CvAnalysisService } from './cv-analysis.service';
 import { AnalyzeCvDto, RecommendJobsDto } from './dto/cv-analysis.dto';
 import {
@@ -21,9 +22,14 @@ export class CvAnalysisController {
   constructor(private readonly cvAnalysisService: CvAnalysisService) {}
 
   @ResponseMessage('Phân tích CV thành công')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('analyze')
   analyzeCv(@Body() analyzeCvDto: AnalyzeCvDto, @User() user: IUser) {
-    return this.cvAnalysisService.analyzeCv(analyzeCvDto.url, user);
+    return this.cvAnalysisService.analyzeCv(
+      analyzeCvDto.url,
+      user,
+      analyzeCvDto.force,
+    );
   }
 
   @ResponseMessage('Gợi ý việc làm thành công')

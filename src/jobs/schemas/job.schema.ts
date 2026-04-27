@@ -68,3 +68,9 @@ export class Job {
 }
 
 export const JobSchema = SchemaFactory.createForClass(Job);
+
+// Compound index for active-job queries (recommendation, public listing).
+// Mongo can use this to filter isActive + endDate >= now without collection scan.
+JobSchema.index({ isActive: 1, endDate: 1 });
+// Index for skill-based pre-filter when running recommendations.
+JobSchema.index({ skills: 1 });

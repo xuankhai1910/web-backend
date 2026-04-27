@@ -60,3 +60,6 @@ export class CvAnalysis {
 }
 
 export const CvAnalysisSchema = SchemaFactory.createForClass(CvAnalysis);
+
+// Compound index for cache lookup: findOne({ userId, fileHash })
+CvAnalysisSchema.index({ userId: 1, fileHash: 1 });
