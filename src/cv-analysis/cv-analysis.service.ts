@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -7,6 +12,7 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import { CvAnalysis, CvAnalysisDocument } from './schemas/cv-analysis.schema';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
+import { Resume, ResumeDocument } from 'src/resumes/schemas/resume.schema';
 import type { IUser } from 'src/users/users.interface';
 import { CvExtractionService } from './cv-extraction.service';
 import {
@@ -15,10 +21,12 @@ import {
   ScorableJob,
   ScoreResult,
 } from './cv-scoring.service';
+import { CvEmbeddingService } from './cv-embedding.service';
 
 @Injectable()
 export class CvAnalysisService {
   private readonly logger = new Logger(CvAnalysisService.name);
+  private readonly publicRoot = path.resolve(process.cwd(), 'public');
 
   constructor(
     @InjectModel(CvAnalysis.name)
@@ -27,8 +35,11 @@ export class CvAnalysisService {
     private jobModel: SoftDeleteModel<JobDocument>,
     @InjectModel(User.name)
     private userModel: SoftDeleteModel<UserDocument>,
+    @InjectModel(Resume.name)
+    private resumeModel: SoftDeleteModel<ResumeDocument>,
     private extraction: CvExtractionService,
     private scoring: CvScoringService,
+    private embedding: CvEmbeddingService,
   ) {}
 
   // ─── FILE HELPERS ─────────────────────────────────────────
@@ -45,15 +56,53 @@ export class CvAnalysisService {
   }
 
   private resolveFilePath(url: string): string {
-    const fullPath = path.join(process.cwd(), 'public', url);
-    if (fs.existsSync(fullPath)) return fullPath;
+    // Reject obvious abuse before touching the filesystem.
+    if (
+      !url ||
+      typeof url !== 'string' ||
+      url.includes('..') ||
+      url.startsWith('/') ||
+      url.startsWith('\\') ||
+      /^[a-zA-Z]:[\\/]/.test(url)
+    ) {
+      throw new BadRequestException('URL CV không hợp lệ');
+    }
 
-    const searchDirs = ['images/resume', 'images/pdf', 'images/default'];
-    for (const dir of searchDirs) {
-      const candidate = path.join(process.cwd(), 'public', dir, url);
+    // Try the literal path first, then well-known subfolders. In every case,
+    // ensure the resolved path stays inside `public/` to block traversal even
+    // if a future change relaxes the input check above.
+    const candidates = [
+      path.resolve(this.publicRoot, url),
+      ...['images/resume', 'images/pdf', 'images/default'].map((dir) =>
+        path.resolve(this.publicRoot, dir, url),
+      ),
+    ];
+
+    for (const candidate of candidates) {
+      if (
+        candidate === this.publicRoot ||
+        !candidate.startsWith(this.publicRoot + path.sep)
+      ) {
+        continue; // outside allowed root → skip
+      }
       if (fs.existsSync(candidate)) return candidate;
     }
-    return fullPath; // caller validates existence
+    return candidates[0]; // caller validates existence
+  }
+
+  /**
+   * Verify the requesting user is allowed to analyze a CV at this URL.
+   * If a Resume document already references this URL, it must belong to the
+   * user. Otherwise the file is treated as a fresh upload (allowed).
+   */
+  private async assertCvOwnership(url: string, user: IUser): Promise<void> {
+    const owner = await this.resumeModel
+      .findOne({ url })
+      .select('userId')
+      .lean();
+    if (owner && String(owner.userId) !== String(user._id)) {
+      throw new ForbiddenException('Bạn không có quyền phân tích CV này');
+    }
   }
 
   // ─── PUBLIC METHODS ───────────────────────────────────────
@@ -62,6 +111,8 @@ export class CvAnalysisService {
    * Analyze a CV. Caches by (userId, fileHash); use `force=true` to bypass.
    */
   async analyzeCv(url: string, user: IUser, force = false) {
+    await this.assertCvOwnership(url, user);
+
     const filePath = this.resolveFilePath(url);
     if (!fs.existsSync(filePath)) {
       throw new BadRequestException(`CV file not found: ${url}`);
@@ -75,24 +126,56 @@ export class CvAnalysisService {
         fileHash,
       });
       if (cached) {
+        const cachedEmbedding = (cached as any).embedding as
+          | number[]
+          | undefined;
+        const isAi = cached.analyzedBy === 'ai';
+        const hasEmbedding = !!cachedEmbedding && cachedEmbedding.length > 0;
+
+        // Only honor cache when it's a high-quality result:
+        //   - analyzed by AI (not the keyword fallback), AND
+        //   - has an embedding vector (Phase 2 ready).
+        // Otherwise, treat as a stale cache and re-run extraction.
+        if (isAi && hasEmbedding) {
+          this.logger.log(
+            `Cache hit for user ${user.email}, fileHash=${fileHash}`,
+          );
+          return cached;
+        }
+
         this.logger.log(
-          `Cache hit for user ${user.email}, fileHash=${fileHash}`,
+          `Stale cache for user ${user.email} (analyzedBy=${cached.analyzedBy}, hasEmbedding=${hasEmbedding}). Re-analyzing...`,
         );
-        return cached;
+        // Fall through to re-extract; we'll overwrite this document below.
       }
     }
 
     const { data, analyzedBy } = await this.extraction.extract(filePath);
 
-    return this.cvAnalysisModel.create({
-      userId: user._id,
-      resumeUrl: url,
-      fileHash,
-      extractedData: data,
-      analyzedBy,
-      analyzedAt: new Date(),
-      createdBy: { _id: user._id, email: user.email },
-    });
+    // Generate semantic embedding (best-effort; empty array if API down).
+    const cvText = this.embedding.buildCvText(data);
+    const embedding = await this.embedding.embed(cvText);
+
+    // Upsert: overwrite stale cache (keyword-only or missing embedding)
+    // so we don't accumulate orphan documents per (userId, fileHash).
+    return this.cvAnalysisModel.findOneAndUpdate(
+      { userId: user._id, fileHash },
+      {
+        $set: {
+          resumeUrl: url,
+          extractedData: data,
+          analyzedBy,
+          embedding,
+          analyzedAt: new Date(),
+        },
+        $setOnInsert: {
+          userId: user._id,
+          fileHash,
+          createdBy: { _id: user._id, email: user.email },
+        },
+      },
+      { upsert: true, returnDocument: 'after' },
+    );
   }
 
   /**
@@ -109,17 +192,17 @@ export class CvAnalysisService {
 
     const extracted = analysis.extractedData as ExtractedCvData;
 
-    // Pre-filter: only fetch jobs that share at least 1 skill with the CV
-    // (or all active jobs if CV has no skills extracted).
-    const baseQuery: Record<string, any> = {
-      isActive: true,
-      endDate: { $gte: new Date() },
-    };
-    if (extracted.skills?.length) {
-      baseQuery.skills = { $in: extracted.skills };
-    }
-
-    const candidateJobs = await this.jobModel.find(baseQuery).lean();
+    // Fetch all active, non-expired jobs and let the in-memory scoring engine
+    // (which uses the SKILL_ALIASES table) decide. A Mongo-side $in pre-filter
+    // would miss case/spelling variants like "nodejs" vs "Node.js", so for
+    // current scale we score everything in memory. Switch to $vectorSearch
+    // when the job collection grows beyond ~5k documents.
+    const candidateJobs = await this.jobModel
+      .find({
+        isActive: true,
+        endDate: { $gte: new Date() },
+      })
+      .lean();
 
     if (candidateJobs.length === 0) {
       return {
@@ -128,11 +211,29 @@ export class CvAnalysisService {
       };
     }
 
+    const cvEmbedding = (analysis as any).embedding as number[] | undefined;
+    const hasCvEmbedding = !!cvEmbedding && cvEmbedding.length > 0;
+
     const scored = candidateJobs
-      .map((job) => ({
-        job,
-        ...this.scoring.computeScore(extracted, job as ScorableJob),
-      }))
+      .map((job) => {
+        let vectorScore = 0;
+        const jobEmbedding = (job as any).embedding as number[] | undefined;
+        if (hasCvEmbedding && jobEmbedding && jobEmbedding.length > 0) {
+          const cos = this.embedding.cosineSimilarity(
+            cvEmbedding,
+            jobEmbedding,
+          );
+          vectorScore = this.embedding.toScore(cos);
+        }
+        return {
+          job,
+          ...this.scoring.computeScore(
+            extracted,
+            job as ScorableJob,
+            vectorScore,
+          ),
+        };
+      })
       .filter((sj) => this.scoring.passesThreshold(sj.breakdown))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);

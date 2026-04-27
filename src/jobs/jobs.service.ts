@@ -8,6 +8,7 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import { InjectModel } from '@nestjs/mongoose';
 import type { IUser } from 'src/users/users.interface';
 import aqp from 'api-query-params';
+import { CvEmbeddingService } from 'src/cv-analysis/cv-embedding.service';
 
 @Injectable()
 export class JobsService {
@@ -15,6 +16,7 @@ export class JobsService {
 
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
+    private embedding: CvEmbeddingService,
   ) {}
 
   private resolveIsActive(isActive: boolean | undefined, endDate?: Date) {
@@ -61,8 +63,15 @@ export class JobsService {
   }
 
   async create(createJobDto: CreateJobDto, user: IUser) {
+    // Generate embedding from job text (best-effort; empty array on failure).
+    const text = this.embedding.buildJobText(createJobDto);
+    const embedding = await this.embedding.embed(text);
+    const embeddingHash = this.embedding.computeTextHash(text);
+
     const data = await this.jobModel.create({
       ...createJobDto,
+      embedding,
+      embeddingHash,
       isActive: this.resolveIsActive(
         createJobDto.isActive,
         createJobDto.endDate,
@@ -152,17 +161,35 @@ export class JobsService {
   }
 
   async update(id: string, updateJobDto: UpdateJobDto, user: IUser) {
-    const currentJob = await this.jobModel.findById(id).select({
-      endDate: 1,
-      isActive: 1,
-    });
+    const currentJob = await this.jobModel.findById(id);
 
     const nextIsActive = this.resolveUpdatedIsActive(updateJobDto, currentJob);
+
+    // Re-embed only if the searchable text actually changed.
+    const merged = {
+      name: updateJobDto.name ?? currentJob?.name,
+      skills: updateJobDto.skills ?? currentJob?.skills,
+      level: updateJobDto.level ?? currentJob?.level,
+      location: updateJobDto.location ?? currentJob?.location,
+      description: updateJobDto.description ?? currentJob?.description,
+    };
+    const newText = this.embedding.buildJobText(merged);
+    const newHash = this.embedding.computeTextHash(newText);
+
+    const embeddingPatch: Partial<{
+      embedding: number[];
+      embeddingHash: string;
+    }> = {};
+    if (newHash !== currentJob?.embeddingHash) {
+      embeddingPatch.embedding = await this.embedding.embed(newText);
+      embeddingPatch.embeddingHash = newHash;
+    }
 
     return this.jobModel.updateOne(
       { _id: id },
       {
         ...updateJobDto,
+        ...embeddingPatch,
         isActive: nextIsActive,
         updatedBy: {
           _id: user._id,
@@ -183,5 +210,56 @@ export class JobsService {
       },
     );
     return this.jobModel.delete({ _id: id });
+  }
+
+  /**
+   * Generate embeddings for jobs that don't have one yet (or whose text changed).
+   * Run once after deploying Phase 2; safe to re-run (skips up-to-date jobs).
+   */
+  async backfillEmbeddings(batchSize = 50): Promise<{
+    processed: number;
+    embedded: number;
+    skipped: number;
+  }> {
+    const jobs = await this.jobModel
+      .find({ isActive: true })
+      .select('name skills level location description embedding embeddingHash')
+      .lean();
+
+    let embedded = 0;
+    let skipped = 0;
+
+    for (let i = 0; i < jobs.length; i += batchSize) {
+      const slice = jobs.slice(i, i + batchSize);
+      for (const job of slice) {
+        const text = this.embedding.buildJobText(job);
+        const newHash = this.embedding.computeTextHash(text);
+
+        if (
+          job.embeddingHash === newHash &&
+          job.embedding &&
+          job.embedding.length > 0
+        ) {
+          skipped++;
+          continue;
+        }
+
+        const vector = await this.embedding.embed(text);
+        if (vector.length === 0) {
+          this.logger.warn(`Failed to embed job ${job._id}, skipping`);
+          continue;
+        }
+        await this.jobModel.updateOne(
+          { _id: job._id },
+          { $set: { embedding: vector, embeddingHash: newHash } },
+        );
+        embedded++;
+      }
+    }
+
+    this.logger.log(
+      `Backfill complete: ${embedded} embedded, ${skipped} skipped, ${jobs.length} total`,
+    );
+    return { processed: jobs.length, embedded, skipped };
   }
 }

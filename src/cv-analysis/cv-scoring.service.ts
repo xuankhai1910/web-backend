@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  HYBRID_WEIGHTS,
   LEVEL_DISTANCE_SCORE,
   NEUTRAL_SCORE,
   RECOMMEND_THRESHOLD,
@@ -31,6 +32,8 @@ export interface ScoreBreakdown {
   titleScore: number;
   levelScore: number;
   locationScore: number;
+  /** [0, 1] cosine-derived similarity; 0 when no embedding available. */
+  vectorScore: number;
 }
 
 export interface ScoreResult {
@@ -123,8 +126,24 @@ export class CvScoringService {
 
   levelMatchScore(cvLevel: string, jobLevel: string): number {
     const levels = ['INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD'];
-    const cvIdx = levels.indexOf(cvLevel?.toUpperCase());
-    const jobIdx = levels.indexOf(jobLevel?.toUpperCase());
+    // Aliases mapped to canonical levels above.
+    const aliasMap: Record<string, string> = {
+      FRESHER: 'INTERN',
+      ENTRY: 'INTERN',
+      MIDDLE: 'MID',
+      MIDLEVEL: 'MID',
+      'MID-LEVEL': 'MID',
+      SR: 'SENIOR',
+      JR: 'JUNIOR',
+      'TEAM LEAD': 'LEAD',
+      'TECH LEAD': 'LEAD',
+    };
+    const norm = (lv: string) => {
+      const up = (lv || '').toUpperCase().trim();
+      return aliasMap[up] ?? up;
+    };
+    const cvIdx = levels.indexOf(norm(cvLevel));
+    const jobIdx = levels.indexOf(norm(jobLevel));
     if (cvIdx === -1 || jobIdx === -1) return NEUTRAL_SCORE;
     const diff = Math.abs(cvIdx - jobIdx);
     return LEVEL_DISTANCE_SCORE[diff] ?? 0;
@@ -142,8 +161,16 @@ export class CvScoringService {
     return 0;
   }
 
-  /** Final weighted score. */
-  computeScore(extracted: ExtractedCvData, job: ScorableJob): ScoreResult {
+  /**
+   * Final weighted score.
+   * If `vectorScore` is provided (> 0), uses HYBRID_WEIGHTS;
+   * otherwise falls back to pure rule-based SCORE_WEIGHTS.
+   */
+  computeScore(
+    extracted: ExtractedCvData,
+    job: ScorableJob,
+    vectorScore = 0,
+  ): ScoreResult {
     const skillScore = this.skillSimilarity(extracted.skills, job.skills || []);
     const titleScore = this.titleMatchScore(extracted.skills, job.name || '');
     const levelScore = this.levelMatchScore(extracted.level, job.level || '');
@@ -152,11 +179,15 @@ export class CvScoringService {
       job.location || '',
     );
 
+    const useHybrid = vectorScore > 0;
+    const w = useHybrid ? HYBRID_WEIGHTS : SCORE_WEIGHTS;
+
     const score =
-      SCORE_WEIGHTS.skill * skillScore +
-      SCORE_WEIGHTS.title * titleScore +
-      SCORE_WEIGHTS.level * levelScore +
-      SCORE_WEIGHTS.location * locationScore;
+      (useHybrid ? HYBRID_WEIGHTS.vector * vectorScore : 0) +
+      w.skill * skillScore +
+      w.title * titleScore +
+      w.level * levelScore +
+      w.location * locationScore;
 
     return {
       score: Math.round(score * 100) / 100,
@@ -166,6 +197,7 @@ export class CvScoringService {
         titleScore: Math.round(titleScore * 100) / 100,
         levelScore: Math.round(levelScore * 100) / 100,
         locationScore: Math.round(locationScore * 100) / 100,
+        vectorScore: Math.round(vectorScore * 100) / 100,
       },
     };
   }

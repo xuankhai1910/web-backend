@@ -76,4 +76,10 @@ export class JobsController {
   remove(@Param('id') id: string, @User() user: IUser) {
     return this.jobsService.remove(id, user);
   }
+
+  @ResponseMessage('Backfill embeddings completed')
+  @Post('backfill-embeddings')
+  backfillEmbeddings() {
+    return this.jobsService.backfillEmbeddings();
+  }
 }

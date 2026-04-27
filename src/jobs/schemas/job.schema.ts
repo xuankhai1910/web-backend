@@ -42,6 +42,17 @@ export class Job {
   @Prop()
   isActive: boolean;
 
+  /**
+   * Semantic embedding vector of the job content (768 dims, Gemini text-embedding-004).
+   * Generated on create/update; empty if not yet computed.
+   */
+  @Prop({ type: [Number], default: [] })
+  embedding: number[];
+
+  /** Hash of the source text used to generate `embedding` — re-embed only if changed. */
+  @Prop()
+  embeddingHash: string;
+
   @Prop()
   createdAt: Date;
 

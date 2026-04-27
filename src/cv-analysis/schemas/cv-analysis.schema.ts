@@ -43,6 +43,13 @@ export class CvAnalysis {
   @Prop({ default: 'ai', enum: ['ai', 'keyword'] })
   analyzedBy: string;
 
+  /**
+   * Semantic embedding vector of the CV content (Gemini text-embedding-004 → 768 dims).
+   * Empty array means embedding has not been computed yet (e.g., keyword fallback).
+   */
+  @Prop({ type: [Number], default: [] })
+  embedding: number[];
+
   @Prop()
   analyzedAt: Date;
 

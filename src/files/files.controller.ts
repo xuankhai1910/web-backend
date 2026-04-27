@@ -25,7 +25,6 @@ export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @ResponseMessage('File uploaded successfully')
-  @Public()
   @Post('upload')
   @UseInterceptors(FileInterceptor('fileUpload')) //tên field sử dụng trong form-data
   @UseFilters(new HttpExceptionFilter())

@@ -73,6 +73,11 @@ export class CvExtractionService implements OnModuleInit {
     }
   }
 
+  /** Public hook so the orchestrator can re-extract raw PDF text for embedding. */
+  async extractRawText(filePath: string): Promise<string> {
+    return this.extractText(filePath);
+  }
+
   // ─── GEMINI ───────────────────────────────────────────────
 
   private async analyzeWithGemini(filePath: string): Promise<ExtractedCvData> {
@@ -126,10 +131,29 @@ export class CvExtractionService implements OnModuleInit {
         } catch (error) {
           lastError = error;
           const msg = error?.message || '';
+          const status = error?.status;
           const is429 =
-            error?.status === 429 ||
+            status === 429 ||
             msg.includes('429') ||
             msg.includes('RESOURCE_EXHAUSTED');
+
+          // 503 / overloaded / unavailable / 500 — server-side issues.
+          // Best response: switch model immediately (don't waste retries here).
+          const isServerError =
+            status === 503 ||
+            status === 500 ||
+            msg.includes('503') ||
+            msg.includes('UNAVAILABLE') ||
+            msg.includes('overloaded') ||
+            msg.includes('high demand') ||
+            msg.includes('INTERNAL');
+
+          // Model not found / not supported — never retry, switch model.
+          const isModelInvalid =
+            status === 404 ||
+            msg.includes('NOT_FOUND') ||
+            msg.includes('is not found') ||
+            msg.includes('not supported');
 
           const isDailyExhausted =
             is429 &&
@@ -137,9 +161,15 @@ export class CvExtractionService implements OnModuleInit {
               msg.includes('PerDay') ||
               msg.includes('RequestsPerDay'));
 
-          if (isDailyExhausted) {
+          // Switch immediately on daily-exhausted / server error / invalid model.
+          if (isDailyExhausted || isServerError || isModelInvalid) {
+            const reason = isDailyExhausted
+              ? 'daily quota exhausted'
+              : isModelInvalid
+                ? 'not available on this API'
+                : 'service unavailable / overloaded';
             this.logger.warn(
-              `Model '${modelName}' daily quota exhausted, switching to next model...`,
+              `Model '${modelName}' ${reason}, switching to next model...`,
             );
             modelExhausted = true;
             break;
@@ -164,7 +194,12 @@ export class CvExtractionService implements OnModuleInit {
             break;
           }
 
-          throw error;
+          // Unknown error — try next model rather than giving up entirely.
+          this.logger.warn(
+            `Model '${modelName}' unknown error (${status ?? 'no status'}): ${msg}. Switching to next model...`,
+          );
+          modelExhausted = true;
+          break;
         }
       }
 

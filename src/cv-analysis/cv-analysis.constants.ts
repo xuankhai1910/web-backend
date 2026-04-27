@@ -17,11 +17,23 @@ export const GEMINI_MAX_RETRIES = 2;
 export const GEMINI_RETRY_DELAYS_MS = [30_000, 60_000];
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
+// Rule-based weights — used when no embedding is available.
 export const SCORE_WEIGHTS = {
-  skill: 0.5,
-  title: 0.15,
-  level: 0.2,
+  skill: 0.4,
+  title: 0.1,
+  level: 0.35,
   location: 0.15,
+} as const;
+
+// Hybrid weights — used when both CV and Job have embeddings.
+//   final = vector*0.30 + skill*0.25 + title*0.10 + level*0.25 + location*0.10
+// Level kept high to avoid recommending jobs whose seniority is far from the CV.
+export const HYBRID_WEIGHTS = {
+  vector: 0.3,
+  skill: 0.25,
+  title: 0.1,
+  level: 0.25,
+  location: 0.1,
 } as const;
 
 // Filter threshold — only recommend jobs above one of these.
@@ -33,11 +45,11 @@ export const RECOMMEND_THRESHOLD = {
 // Title-match scoring: hits / TITLE_MATCH_NORMALIZER, capped at 1.
 export const TITLE_MATCH_NORMALIZER = 2;
 
-// Level distance → score map
+// Level distance → score map (steeper penalty for far mismatches)
 export const LEVEL_DISTANCE_SCORE: Record<number, number> = {
   0: 1.0,
-  1: 0.7,
-  2: 0.3,
+  1: 0.5,
+  2: 0.15,
 };
 
 // Default for unknown level/location

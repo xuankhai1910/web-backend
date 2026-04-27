@@ -1,12 +1,25 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { CreateResumeDto, CreateUserCvDto } from './dto/create-resume.dto';
-import { UpdateResumeDto } from './dto/update-resume.dto';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { CreateUserCvDto } from './dto/create-resume.dto';
 import type { IUser } from 'src/users/users.interface';
 import { InjectModel } from '@nestjs/mongoose';
 import { Resume, ResumeDocument } from './schemas/resume.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
-import mongoose, { mongo } from 'mongoose';
+import mongoose from 'mongoose';
 import aqp from 'api-query-params';
+
+const ALLOWED_STATUSES = [
+  'PENDING',
+  'REVIEWING',
+  'APPROVED',
+  'REJECTED',
+] as const;
+export type ResumeStatus = (typeof ALLOWED_STATUSES)[number];
 
 @Injectable()
 export class ResumesService {
@@ -16,9 +29,56 @@ export class ResumesService {
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
   ) {}
+
+  // ─── ACCESS HELPERS ───────────────────────────────────────
+
+  private isAdmin(user: IUser): boolean {
+    const roleName = user?.role?.name?.toUpperCase();
+    return roleName === 'SUPER_ADMIN' || roleName === 'ADMIN';
+  }
+
+  /**
+   * Scope a Mongo filter to resources the user is allowed to see:
+   *  - admin: no extra filter
+   *  - HR (has company): resumes of their company
+   *  - normal user: resumes they own
+   */
+  private scopeFilter(user: IUser): Record<string, unknown> {
+    if (this.isAdmin(user)) return {};
+    if (user?.company?._id) return { companyId: user.company._id };
+    return { userId: user._id };
+  }
+
+  /** Reject obvious path-traversal / absolute paths in client-provided URLs. */
+  private assertSafeUrl(url: string): void {
+    if (
+      !url ||
+      typeof url !== 'string' ||
+      url.includes('..') ||
+      url.startsWith('/') ||
+      url.startsWith('\\') ||
+      /^[a-zA-Z]:[\\/]/.test(url)
+    ) {
+      throw new BadRequestException('URL CV không hợp lệ');
+    }
+  }
+
+  // ─── CRUD ─────────────────────────────────────────────────
+
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
     const { url, companyId, jobId } = createUserCvDto;
     const { email, _id } = user;
+
+    this.assertSafeUrl(url);
+
+    // Prevent reusing a CV URL that already belongs to a different user.
+    const conflict = await this.resumeModel.findOne({
+      url,
+      userId: { $ne: _id },
+    });
+    if (conflict) {
+      throw new ForbiddenException('Bạn không có quyền sử dụng URL CV này');
+    }
 
     const newCV = await this.resumeModel.create({
       url,
@@ -48,24 +108,18 @@ export class ResumesService {
     delete filter.current;
     delete filter.pageSize;
 
-    // Filter by company id if user is HR (not admin, and has company associated)
-    if (
-      user &&
-      user.role?.name?.toUpperCase() !== 'SUPER_ADMIN' &&
-      user.role?.name?.toUpperCase() !== 'ADMIN' &&
-      user.company
-    ) {
-      filter['companyId'] = user.company._id;
-    }
+    // Always merge access scope LAST so client-supplied query params
+    // cannot widen visibility beyond what the role permits.
+    Object.assign(filter, this.scopeFilter(user));
 
     let offset = (+currentPage - 1) * +limit;
     let defaultLimit = +limit ? +limit : 10;
 
     const collation = { locale: 'vi', strength: 1 };
 
-    const totalItems = (
-      await this.resumeModel.find(filter).collation(collation)
-    ).length;
+    const totalItems = await this.resumeModel
+      .countDocuments(filter)
+      .collation(collation);
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.resumeModel
@@ -89,11 +143,18 @@ export class ResumesService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user: IUser) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       throw new BadRequestException('cannot find resume with id: ' + id);
     }
-    return await this.resumeModel.findById(id);
+    const resume = await this.resumeModel.findOne({
+      _id: id,
+      ...this.scopeFilter(user),
+    });
+    if (!resume) {
+      throw new NotFoundException('Không tìm thấy CV hoặc không có quyền xem');
+    }
+    return resume;
   }
 
   async findByUsers(user: IUser) {
@@ -116,42 +177,49 @@ export class ResumesService {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       throw new BadRequestException('cannot find resume with id: ' + id);
     }
+    if (!ALLOWED_STATUSES.includes(status as ResumeStatus)) {
+      throw new BadRequestException(
+        `Trạng thái không hợp lệ. Cho phép: ${ALLOWED_STATUSES.join(', ')}`,
+      );
+    }
+
     const updated = await this.resumeModel.updateOne(
-      { _id: id }, // Tham số 1: Filter
+      { _id: id, ...this.scopeFilter(user) },
       {
-        // Tham số 2: Update (Gộp hết vào đây)
         status,
-        updatedBy: {
-          _id: user._id,
-          email: user.email,
-        },
+        updatedBy: { _id: user._id, email: user.email },
         $push: {
           history: {
-            status: status,
+            status,
             updatedAt: new Date(),
-            updatedBy: {
-              _id: user._id,
-              email: user.email,
-            },
+            updatedBy: { _id: user._id, email: user.email },
           },
         },
       },
     );
 
+    if (updated.matchedCount === 0) {
+      throw new NotFoundException(
+        'Không tìm thấy CV hoặc không có quyền cập nhật',
+      );
+    }
     return updated;
   }
 
   async remove(id: string, user: IUser) {
-    await this.resumeModel.updateOne(
-      { _id: id },
-      {
-        deletedBy: {
-          _id: user._id,
-          email: user.email,
-        },
-      },
-    );
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('cannot find resume with id: ' + id);
+    }
 
-    return await this.resumeModel.delete({ _id: id });
+    const filter = { _id: id, ...this.scopeFilter(user) };
+    const target = await this.resumeModel.findOne(filter).select('_id');
+    if (!target) {
+      throw new NotFoundException('Không tìm thấy CV hoặc không có quyền xoá');
+    }
+
+    await this.resumeModel.updateOne(filter, {
+      deletedBy: { _id: user._id, email: user.email },
+    });
+    return this.resumeModel.delete(filter);
   }
 }

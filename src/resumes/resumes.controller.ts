@@ -43,8 +43,8 @@ export class ResumesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.resumesService.findOne(id);
+  findOne(@Param('id') id: string, @User() user: IUser) {
+    return this.resumesService.findOne(id, user);
   }
 
   @ResponseMessage('Resume updated successfully')

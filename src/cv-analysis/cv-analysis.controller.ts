@@ -1,20 +1,8 @@
-import {
-  Controller,
-  Post,
-  Body,
-  Get,
-  Delete,
-  Param,
-  Query,
-} from '@nestjs/common';
+import { Controller, Post, Body, Get, Delete, Param } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CvAnalysisService } from './cv-analysis.service';
 import { AnalyzeCvDto, RecommendJobsDto } from './dto/cv-analysis.dto';
-import {
-  ResponseMessage,
-  SkipCheckPermission,
-  User,
-} from 'src/decorators/customize';
+import { ResponseMessage, User } from 'src/decorators/customize';
 import type { IUser } from 'src/users/users.interface';
 
 @Controller('cv-analysis')
