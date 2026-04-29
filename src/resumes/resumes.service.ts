@@ -12,6 +12,7 @@ import { Resume, ResumeDocument } from './schemas/resume.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import mongoose from 'mongoose';
 import aqp from 'api-query-params';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 const ALLOWED_STATUSES = [
   'PENDING',
@@ -28,6 +29,7 @@ export class ResumesService {
   constructor(
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─── ACCESS HELPERS ───────────────────────────────────────
@@ -95,6 +97,15 @@ export class ResumesService {
           updatedBy: { _id: user._id, email: user.email },
         },
       ],
+    });
+
+    // Best-effort: tạo noti cho ứng viên + fan-out HR công ty.
+    // Không await để không làm chậm response API; service nội bộ đã try/catch.
+    void this.notificationsService.notifyResumeSubmitted({
+      resumeId: newCV._id,
+      jobId,
+      companyId,
+      actor: user,
     });
 
     return {
@@ -183,6 +194,18 @@ export class ResumesService {
       );
     }
 
+    // Lấy snapshot trước khi update để biết prevStatus + chủ CV (cho noti).
+    const before = await this.resumeModel
+      .findOne({ _id: id, ...this.scopeFilter(user) })
+      .select('status userId jobId companyId')
+      .lean();
+
+    if (!before) {
+      throw new NotFoundException(
+        'Không tìm thấy CV hoặc không có quyền cập nhật',
+      );
+    }
+
     const updated = await this.resumeModel.updateOne(
       { _id: id, ...this.scopeFilter(user) },
       {
@@ -203,6 +226,19 @@ export class ResumesService {
         'Không tìm thấy CV hoặc không có quyền cập nhật',
       );
     }
+
+    // Best-effort: bắn noti cho chủ CV. Service đã handle idempotency
+    // (prevStatus === newStatus → bỏ qua) và trường hợp HR tự nộp tự đổi.
+    void this.notificationsService.notifyResumeStatusChanged({
+      resumeId: id,
+      ownerId: before.userId,
+      jobId: before.jobId,
+      companyId: before.companyId,
+      prevStatus: before.status,
+      newStatus: status,
+      actor: user,
+    });
+
     return updated;
   }
 

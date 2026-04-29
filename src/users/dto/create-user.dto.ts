@@ -115,6 +115,18 @@ export class RegisterUserDto {
     message: 'Giới tính không được để trống',
   })
   gender: string;
+
+  @IsNotEmpty({
+    message: 'Vai trò không được để trống',
+  })
+  @IsMongoId({
+    message: 'Vai trò không đúng định dạng là mongoID',
+  })
+  role: mongoose.Schema.Types.ObjectId;
+
+  @ValidateNested()
+  @Type(() => Company)
+  company: Company;
 }
 
 //create-user.dto

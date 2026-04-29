@@ -62,13 +62,9 @@ export class UsersService {
       );
     }
 
-    // fetch user role
-    const userRole = await this.roleModel.findOne({ name: USER_ROLE });
-
     const hashPassword = this.getHashPassword(registerUserDto.password);
     const user = await this.userModel.create({
       ...registerUserDto,
-      role: userRole?._id,
       password: hashPassword,
     } as any);
     return user;

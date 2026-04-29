@@ -119,4 +119,11 @@ export class RolesService {
     );
     return await this.roleModel.delete({ _id: id });
   }
+
+  async findPublicRoles() {
+    const result = await this.roleModel.find({
+      name: { $in: ['HR', 'NORMAL_USER'] },
+    });
+    return result;
+  }
 }

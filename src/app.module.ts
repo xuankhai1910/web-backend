@@ -21,6 +21,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
 import { CvAnalysisModule } from './cv-analysis/cv-analysis.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { CvAnalysisModule } from './cv-analysis/cv-analysis.module';
     MailModule,
     HealthModule,
     CvAnalysisModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
