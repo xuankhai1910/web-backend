@@ -1,4 +1,9 @@
-import { IsNotEmpty } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsPhoneNumber,
+  isPhoneNumber,
+} from 'class-validator';
 
 export class CreateCompanyDto {
   @IsNotEmpty({ message: 'Tên không được để trống' })
@@ -12,4 +17,17 @@ export class CreateCompanyDto {
 
   @IsNotEmpty({ message: 'Logo không được để trống' })
   logo: string;
+
+  @IsNotEmpty({
+    message: 'Quý công ty vui lòng cung cấp email để ứng viên có thể liên hệ',
+  })
+  @IsEmail({}, { message: 'Email không hợp lệ' })
+  email: string;
+
+  @IsNotEmpty({
+    message:
+      'Quý công ty vui lòng cung cấp số điện thoại để ứng viên có thể liên hệ',
+  })
+  @IsPhoneNumber('VN', { message: 'Số điện thoại không hợp lệ' })
+  phone: string;
 }

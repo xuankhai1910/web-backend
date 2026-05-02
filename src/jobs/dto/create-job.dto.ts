@@ -1,9 +1,12 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsEmail,
   IsNotEmpty,
   IsNotEmptyObject,
   IsObject,
+  IsOptional,
+  IsPhoneNumber,
   IsString,
   ValidateNested,
 } from 'class-validator';
@@ -18,6 +21,14 @@ class Company {
 
   @IsNotEmpty({ message: 'Logo công ty không được để trống' })
   logo: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Email công ty không hợp lệ' })
+  email: string;
+
+  @IsOptional()
+  @IsPhoneNumber('VN', { message: 'Số điện thoại công ty không hợp lệ' })
+  phone: string;
 }
 
 export class CreateJobDto {

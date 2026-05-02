@@ -40,6 +40,12 @@ export class Company {
     _id: mongoose.Schema.Types.ObjectId;
     email: string;
   };
+
+  @Prop()
+  email: string;
+
+  @Prop()
+  phone: string;
 }
 
 export const CompanySchema = SchemaFactory.createForClass(Company);
