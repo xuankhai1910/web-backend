@@ -12,7 +12,13 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SetRecommendationCvDto } from './dto/recommendation-cv.dto';
-import { Public, ResponseMessage, User } from 'src/decorators/customize';
+import { UpdateJobSeekingDto } from './dto/job-seeking.dto';
+import {
+  Public,
+  ResponseMessage,
+  SkipCheckPermission,
+  User,
+} from 'src/decorators/customize';
 import type { IUser } from './users.interface';
 
 @Controller('users')
@@ -31,6 +37,15 @@ export class UsersController {
     @Query() qs: string,
   ) {
     return this.usersService.findAll(+currentPage, +limit, qs);
+  }
+
+  // ─── JOB SEEKING ────────────────────────────────────────
+
+  @SkipCheckPermission()
+  @ResponseMessage('Cập nhật trạng thái tìm việc thành công')
+  @Patch('job-seeking')
+  updateJobSeeking(@Body() dto: UpdateJobSeekingDto, @User() user: IUser) {
+    return this.usersService.updateJobSeeking(dto, user);
   }
 
   // ─── RECOMMENDATION CV ─────────────────────────────────────

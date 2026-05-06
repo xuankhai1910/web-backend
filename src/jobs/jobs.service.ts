@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { CreateJobDto } from './dto/create-job.dto';
 import type { UpdateJobDto } from './dto/update-job.dto';
@@ -210,6 +210,54 @@ export class JobsService {
       },
     );
     return this.jobModel.delete({ _id: id });
+  }
+
+  /**
+   * Find up to `limit` active jobs that share at least one skill with the
+   * given job, or belong to the same company. Sorted by overlapping skill
+   * count (DESC). Excludes the source job itself and inactive/expired jobs.
+   */
+  async findSimilar(jobId: string, limit = 6) {
+    const job = await this.jobModel
+      .findById(jobId)
+      .select('skills company')
+      .lean();
+    if (!job) {
+      throw new NotFoundException('Không tìm thấy công việc');
+    }
+
+    const skills = job.skills ?? [];
+    const companyId = job.company?._id;
+
+    const orClauses: Record<string, unknown>[] = [];
+    if (skills.length > 0) orClauses.push({ skills: { $in: skills } });
+    if (companyId) orClauses.push({ 'company._id': companyId });
+
+    if (orClauses.length === 0) return [];
+
+    const candidates = await this.jobModel
+      .find({
+        _id: { $ne: jobId },
+        isActive: true,
+        endDate: { $gte: new Date() },
+        $or: orClauses,
+      })
+      .select('-description -embedding -embeddingHash')
+      .lean();
+
+    // Sort by overlapping-skill count DESC, then recency
+    const skillSet = new Set(skills);
+    candidates.sort((a, b) => {
+      const aOverlap = (a.skills ?? []).filter((s) => skillSet.has(s)).length;
+      const bOverlap = (b.skills ?? []).filter((s) => skillSet.has(s)).length;
+      if (bOverlap !== aOverlap) return bOverlap - aOverlap;
+      return (
+        new Date(b.createdAt ?? 0).getTime() -
+        new Date(a.createdAt ?? 0).getTime()
+      );
+    });
+
+    return candidates.slice(0, limit);
   }
 
   /**

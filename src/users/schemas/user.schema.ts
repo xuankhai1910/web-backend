@@ -44,6 +44,12 @@ export class User {
     updatedAt: Date;
   };
 
+  @Prop({ default: false })
+  isJobSeeking: boolean;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'UserProfile' })
+  profileId: mongoose.Schema.Types.ObjectId;
+
   @Prop()
   createdAt: Date;
 

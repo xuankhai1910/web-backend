@@ -19,6 +19,7 @@ import { USER_ROLE } from 'src/databases/sample';
 import { Role, RoleDocument } from 'src/roles/schemas/role.schema';
 import { CvAnalysisService } from 'src/cv-analysis/cv-analysis.service';
 import { SetRecommendationCvDto } from './dto/recommendation-cv.dto';
+import { UpdateJobSeekingDto } from './dto/job-seeking.dto';
 
 @Injectable()
 export class UsersService {
@@ -172,6 +173,19 @@ export class UsersService {
       select: { name: 1 },
     });
   };
+
+  // ─── JOB SEEKING ────────────────────────────────────────
+
+  async updateJobSeeking(dto: UpdateJobSeekingDto, user: IUser) {
+    await this.userModel.updateOne(
+      { _id: user._id },
+      {
+        isJobSeeking: dto.isJobSeeking,
+        updatedBy: { _id: user._id, email: user.email },
+      },
+    );
+    return { isJobSeeking: dto.isJobSeeking };
+  }
 
   // ─── RECOMMENDATION CV ──────────────────────────────────
 

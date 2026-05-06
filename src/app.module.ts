@@ -22,6 +22,9 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
 import { CvAnalysisModule } from './cv-analysis/cv-analysis.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { UserProfilesModule } from './user-profiles/user-profiles.module';
+import { SavedJobsModule } from './saved-jobs/saved-jobs.module';
+import { ToolsModule } from './tools/tools.module';
 
 @Module({
   imports: [
@@ -65,6 +68,9 @@ import { NotificationsModule } from './notifications/notifications.module';
     HealthModule,
     CvAnalysisModule,
     NotificationsModule,
+    UserProfilesModule,
+    SavedJobsModule,
+    ToolsModule,
   ],
   controllers: [AppController],
   providers: [

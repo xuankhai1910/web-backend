@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { CreateUserCvDto } from './dto/create-resume.dto';
 import type { IUser } from 'src/users/users.interface';
@@ -13,6 +15,7 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import mongoose from 'mongoose';
 import aqp from 'api-query-params';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { UserProfilesService } from 'src/user-profiles/user-profiles.service';
 
 const ALLOWED_STATUSES = [
   'PENDING',
@@ -30,6 +33,8 @@ export class ResumesService {
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
     private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => UserProfilesService))
+    private readonly userProfilesService: UserProfilesService,
   ) {}
 
   // ─── ACCESS HELPERS ───────────────────────────────────────
@@ -68,8 +73,15 @@ export class ResumesService {
   // ─── CRUD ─────────────────────────────────────────────────
 
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
-    const { url, companyId, jobId } = createUserCvDto;
+    const { companyId, jobId } = createUserCvDto;
+    let { url } = createUserCvDto;
     const { email, _id } = user;
+
+    // If client passed `profile:<userId>` (or `profile:`) — generate from
+    // the user's online CV builder profile and use the generated artifact.
+    if (typeof url === 'string' && url.startsWith('profile:')) {
+      url = await this.userProfilesService.resolveProfileUrl(url, user);
+    }
 
     this.assertSafeUrl(url);
 

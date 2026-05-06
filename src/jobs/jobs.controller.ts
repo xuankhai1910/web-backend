@@ -55,6 +55,13 @@ export class JobsController {
   }
 
   @Public()
+  @ResponseMessage('Lấy danh sách công việc tương tự thành công')
+  @Get(':id/similar')
+  findSimilar(@Param('id') id: string) {
+    return this.jobsService.findSimilar(id);
+  }
+
+  @Public()
   @ResponseMessage('Job retrieved successfully')
   @Get(':id')
   findOne(@Param('id') id: string) {
