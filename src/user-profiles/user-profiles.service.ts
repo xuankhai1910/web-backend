@@ -37,6 +37,20 @@ export class UserProfilesService {
     return role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR';
   }
 
+  private async syncJobSeekingWithPublicProfile(
+    dto: Pick<CreateUserProfileDto, 'isPublic'>,
+    user: IUser,
+  ) {
+    if (typeof dto.isPublic !== 'boolean') return;
+    await this.userModel.updateOne(
+      { _id: user._id },
+      {
+        isJobSeeking: dto.isPublic,
+        updatedBy: { _id: user._id, email: user.email },
+      },
+    );
+  }
+
   /**
    * Compute completion score (0-100) by section weight:
    *  personalInfo 20, summary 10, experiences 25, education 15,
@@ -78,6 +92,7 @@ export class UserProfilesService {
           updatedBy: { _id: user._id, email: user.email },
         },
       );
+      await this.syncJobSeekingWithPublicProfile(dto, user);
       return this.profileModel.findById(existing._id);
     }
 
@@ -91,7 +106,12 @@ export class UserProfilesService {
     // Link profileId on user
     await this.userModel.updateOne(
       { _id: user._id },
-      { profileId: created._id },
+      {
+        profileId: created._id,
+        ...(typeof dto.isPublic === 'boolean'
+          ? { isJobSeeking: dto.isPublic }
+          : {}),
+      },
     );
 
     return created;
@@ -126,6 +146,7 @@ export class UserProfilesService {
         updatedBy: { _id: user._id, email: user.email },
       },
     );
+    await this.syncJobSeekingWithPublicProfile(dto, user);
     return this.profileModel.findById(existing._id);
   }
 
@@ -141,7 +162,7 @@ export class UserProfilesService {
     await this.profileModel.delete({ _id: existing._id });
     await this.userModel.updateOne(
       { _id: user._id },
-      { $unset: { profileId: '' } },
+      { isJobSeeking: false, $unset: { profileId: '' } },
     );
     return { deleted: true };
   }
@@ -159,6 +180,63 @@ export class UserProfilesService {
       throw new ForbiddenException('Hồ sơ này không công khai');
     }
     return profile;
+  }
+
+  async findPublicByUserId(userId: string) {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('ID người dùng không hợp lệ');
+    }
+
+    const foundUser = await this.userModel
+      .findById(userId)
+      .select('_id name isJobSeeking profileId')
+      .lean();
+
+    if (!foundUser) {
+      throw new NotFoundException('Hồ sơ này hiện chưa khả dụng');
+    }
+
+    const publicProfileFilter: FilterQuery<UserProfileDocument> = {
+      userId: new mongoose.Types.ObjectId(userId),
+      isPublic: true,
+    };
+    const profile = await this.profileModel.findOne(publicProfileFilter).lean();
+
+    if (!profile) {
+      throw new NotFoundException('Hồ sơ này hiện chưa khả dụng');
+    }
+
+    const publicPersonalInfo = { ...(profile.personalInfo || {}) } as Partial<
+      UserProfile['personalInfo']
+    >;
+    delete publicPersonalInfo.dateOfBirth;
+
+    return {
+      user: {
+        _id: foundUser._id,
+        name: foundUser.name,
+        isJobSeeking: true,
+      },
+      profile: {
+        _id: profile._id,
+        userId: profile.userId,
+        title: profile.title,
+        personalInfo: publicPersonalInfo,
+        summary: profile.summary,
+        experiences: profile.experiences,
+        education: profile.education,
+        projects: profile.projects,
+        skills: profile.skills,
+        certifications: profile.certifications,
+        awards: profile.awards,
+        languages: profile.languages,
+        templateId: profile.templateId,
+        isPublic: profile.isPublic,
+        completionScore: profile.completionScore,
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt,
+      },
+    };
   }
 
   /**

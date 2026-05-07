@@ -62,6 +62,13 @@ export class UserProfilesController {
   }
 
   @Public()
+  @ResponseMessage('Lấy hồ sơ ứng viên công khai thành công')
+  @Get('public/user/:userId')
+  findPublicByUserId(@Param('userId') userId: string) {
+    return this.service.findPublicByUserId(userId);
+  }
+
+  @Public()
   @ResponseMessage('Lấy hồ sơ CV thành công')
   @Get(':id')
   findOne(@Param('id') id: string, @User() user: IUser) {
