@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { CreateJobDto } from './dto/create-job.dto';
 import type { UpdateJobDto } from './dto/update-job.dto';
@@ -18,6 +23,24 @@ export class JobsService {
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
     private embedding: CvEmbeddingService,
   ) {}
+
+  private isAdmin(user: IUser): boolean {
+    const roleName = user?.role?.name?.toUpperCase();
+    return roleName === 'SUPER_ADMIN' || roleName === 'ADMIN';
+  }
+
+  private assertCanCreateForCompany(createJobDto: CreateJobDto, user: IUser) {
+    if (this.isAdmin(user)) return;
+
+    const requestedCompanyId = String(createJobDto.company?._id ?? '');
+    const userCompanyId = String(user?.company?._id ?? '');
+
+    if (!userCompanyId || requestedCompanyId !== userCompanyId) {
+      throw new ForbiddenException(
+        'HR chỉ có thể tạo công việc cho công ty của mình',
+      );
+    }
+  }
 
   private resolveIsActive(isActive: boolean | undefined, endDate?: Date) {
     if (isActive === false) return false;
@@ -63,6 +86,8 @@ export class JobsService {
   }
 
   async create(createJobDto: CreateJobDto, user: IUser) {
+    this.assertCanCreateForCompany(createJobDto, user);
+
     // Generate embedding from job text (best-effort; empty array on failure).
     const text = this.embedding.buildJobText(createJobDto);
     const embedding = await this.embedding.embed(text);
