@@ -131,6 +131,40 @@ export class JobsService {
       }
     }
 
+    // Free-text keyword search across name + skills + company.name.
+    // Tokenize by whitespace; each token must match at least one of the three
+    // fields. Per-token regex tolerates non-alphanumeric chars between letters
+    // so "reactjs" matches "React.js", "React JS", "react-js"...
+    const rawKeyword = filter.keyword;
+    delete filter.keyword;
+    const keywordStr = Array.isArray(rawKeyword)
+      ? rawKeyword.join(' ')
+      : rawKeyword
+        ? String(rawKeyword)
+        : '';
+    const tokens = keywordStr.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length > 0) {
+      const tokenClauses = tokens
+        .map((token) => {
+          const normalized = token.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!normalized) return null;
+          const pattern = normalized.split('').join('[^a-zA-Z0-9]*');
+          const regex = new RegExp(pattern, 'i');
+          return {
+            $or: [
+              { name: regex },
+              { skills: regex },
+              { 'company.name': regex },
+            ],
+          };
+        })
+        .filter((clause): clause is NonNullable<typeof clause> => !!clause);
+      if (tokenClauses.length > 0) {
+        const existingAnd = Array.isArray(filter.$and) ? filter.$and : [];
+        filter.$and = [...existingAnd, ...tokenClauses];
+      }
+    }
+
     // Filter by company id if user is HR (not admin, and has company associated)
     if (
       user &&
