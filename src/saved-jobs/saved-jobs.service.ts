@@ -9,6 +9,7 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import aqp from 'api-query-params';
 import { SavedJob, SavedJobDocument } from './schemas/saved-job.schema';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
+import { buildJobKeywordClauses } from 'src/jobs/utils/keyword-filter';
 import type { IUser } from 'src/users/users.interface';
 import { CreateSavedJobDto } from './dto/create-saved-job.dto';
 
@@ -61,6 +62,35 @@ export class SavedJobsService {
 
     // Always scope to current user
     filter.userId = user._id;
+
+    // Free-text keyword search: SavedJob has no searchable fields itself, so
+    // resolve matching Job._ids first and constrain by jobId $in [...].
+    const rawKeyword = filter.keyword;
+    delete filter.keyword;
+    const keywordStr = Array.isArray(rawKeyword)
+      ? rawKeyword.join(' ')
+      : rawKeyword
+        ? String(rawKeyword)
+        : '';
+    const tokenClauses = buildJobKeywordClauses(keywordStr);
+    if (tokenClauses) {
+      const matchedJobIds = await this.jobModel
+        .find({ $and: tokenClauses })
+        .select('_id')
+        .lean();
+      if (matchedJobIds.length === 0) {
+        return {
+          meta: {
+            current: currentPage,
+            pageSize: limit,
+            pages: 0,
+            total: 0,
+          },
+          result: [],
+        };
+      }
+      filter.jobId = { $in: matchedJobIds.map((j) => j._id) };
+    }
 
     const offset = (+currentPage - 1) * +limit;
     const defaultLimit = +limit ? +limit : 10;
