@@ -77,6 +77,9 @@ export class CvEmbeddingService implements OnModuleInit {
   buildCvText(extracted: ExtractedCvData): string {
     const parts = [
       extracted.summary || '',
+      extracted.desiredJobTitle
+        ? `Desired role: ${extracted.desiredJobTitle}`
+        : '',
       `Skills: ${(extracted.skills || []).join(', ')}`,
       `Level: ${extracted.level || ''}`,
       `Education: ${extracted.education || ''}`,

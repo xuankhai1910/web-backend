@@ -18,28 +18,33 @@ export const GEMINI_RETRY_DELAYS_MS = [30_000, 60_000];
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
 // Rule-based weights — used when no embedding is available.
+//   final = skill*0.30 + skillsInTitle*0.05 + desiredTitle*0.20 + level*0.30 + location*0.15
 export const SCORE_WEIGHTS = {
-  skill: 0.4,
-  title: 0.1,
-  level: 0.35,
+  skill: 0.3,
+  title: 0.05,
+  desiredTitle: 0.2,
+  level: 0.3,
   location: 0.15,
 } as const;
 
 // Hybrid weights — used when both CV and Job have embeddings.
-//   final = vector*0.30 + skill*0.25 + title*0.10 + level*0.25 + location*0.10
+//   final = vector*0.25 + skill*0.20 + skillsInTitle*0.05 + desiredTitle*0.15 + level*0.25 + location*0.10
 // Level kept high to avoid recommending jobs whose seniority is far from the CV.
+// `desiredTitle` rewards matching the role the candidate is actually applying for.
 export const HYBRID_WEIGHTS = {
-  vector: 0.3,
-  skill: 0.25,
-  title: 0.1,
+  vector: 0.25,
+  skill: 0.2,
+  title: 0.05,
+  desiredTitle: 0.15,
   level: 0.25,
   location: 0.1,
 } as const;
 
-// Filter threshold — only recommend jobs above one of these.
+// Filter threshold — only recommend jobs above one of these signals.
 export const RECOMMEND_THRESHOLD = {
   skillScore: 0.3,
   titleScore: 0.5,
+  desiredTitleScore: 0.5,
 } as const;
 
 // Title-match scoring: hits / TITLE_MATCH_NORMALIZER, capped at 1.
@@ -51,6 +56,66 @@ export const LEVEL_DISTANCE_SCORE: Record<number, number> = {
   1: 0.5,
   2: 0.15,
 };
+
+// Canonical seniority order (left = most junior). Used for distance + targets.
+export const LEVEL_ORDER = [
+  'INTERN',
+  'FRESHER',
+  'JUNIOR',
+  'MID',
+  'SENIOR',
+  'LEAD',
+] as const;
+
+/**
+ * Hard level filter. Maps a CV level to the set of job levels we are willing
+ * to recommend for that CV. Asymmetric and tighter than pure distance — e.g.
+ * an INTERN should never see SENIOR roles even if skills overlap.
+ * If a job's level is not in this list, `levelMatchScore` returns 0 and the
+ * job is rejected by `passesThreshold`.
+ */
+export const LEVEL_ALLOWED_TARGETS: Record<string, string[]> = {
+  INTERN: ['INTERN', 'FRESHER'],
+  FRESHER: ['INTERN', 'FRESHER', 'JUNIOR'],
+  JUNIOR: ['FRESHER', 'JUNIOR', 'MID'],
+  MID: ['JUNIOR', 'MID', 'SENIOR'],
+  SENIOR: ['MID', 'SENIOR', 'LEAD'],
+  LEAD: ['SENIOR', 'LEAD'],
+};
+
+// Stop-words ignored when comparing the candidate's desiredJobTitle to a job name.
+export const TITLE_STOPWORDS = new Set([
+  'developer',
+  'engineer',
+  'specialist',
+  'consultant',
+  'programmer',
+  'staff',
+  'member',
+  'officer',
+  'analyst',
+  'lead',
+  'senior',
+  'junior',
+  'mid',
+  'middle',
+  'intern',
+  'fresher',
+  'remote',
+  'onsite',
+  'hybrid',
+  'fulltime',
+  'parttime',
+  'level',
+  'position',
+  'role',
+  'job',
+  'and',
+  'or',
+  'the',
+  'of',
+  'for',
+]);
 
 // Default for unknown level/location
 export const NEUTRAL_SCORE = 0.5;

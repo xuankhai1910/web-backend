@@ -125,6 +125,7 @@ export class CvExtractionService implements OnModuleInit {
             s.toLowerCase().trim(),
           );
           parsed.preferredLocations = parsed.preferredLocations ?? [];
+          parsed.desiredJobTitle = (parsed.desiredJobTitle ?? '').trim();
 
           this.logger.log(`Gemini model '${modelName}' succeeded`);
           return parsed;
@@ -245,6 +246,7 @@ export class CvExtractionService implements OnModuleInit {
       skills: matchedSkills,
       level: 'JUNIOR',
       yearsOfExperience: 0,
+      desiredJobTitle: '',
       education: '',
       preferredLocations: detectedLocations,
       summary: 'Analyzed using keyword matching fallback.',

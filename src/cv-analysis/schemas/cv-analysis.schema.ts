@@ -14,6 +14,10 @@ export class ExtractedData {
   @Prop()
   yearsOfExperience: number;
 
+  /** Position the candidate is applying for (e.g. "Backend Developer"). */
+  @Prop({ default: '' })
+  desiredJobTitle: string;
+
   @Prop()
   education: string;
 
