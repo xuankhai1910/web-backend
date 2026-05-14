@@ -4,6 +4,8 @@ import { UserProfilesController } from './user-profiles.controller';
 import { UserProfilesService } from './user-profiles.service';
 import { UserProfile, UserProfileSchema } from './schemas/user-profile.schema';
 import { User, UserSchema } from 'src/users/schemas/user.schema';
+import { ProfileEmbeddingService } from './profile-embedding.service';
+import { CvAnalysisModule } from 'src/cv-analysis/cv-analysis.module';
 
 @Module({
   imports: [
@@ -11,9 +13,10 @@ import { User, UserSchema } from 'src/users/schemas/user.schema';
       { name: UserProfile.name, schema: UserProfileSchema },
       { name: User.name, schema: UserSchema },
     ]),
+    CvAnalysisModule,
   ],
   controllers: [UserProfilesController],
-  providers: [UserProfilesService],
-  exports: [UserProfilesService],
+  providers: [UserProfilesService, ProfileEmbeddingService],
+  exports: [UserProfilesService, ProfileEmbeddingService, MongooseModule],
 })
 export class UserProfilesModule {}

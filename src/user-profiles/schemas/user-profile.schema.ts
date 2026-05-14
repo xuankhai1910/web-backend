@@ -143,6 +143,18 @@ export class UserProfile {
   @Prop({ default: 0, min: 0, max: 100 })
   completionScore: number;
 
+  /**
+   * Semantic embedding vector of the profile content (768 dims, Gemini text-embedding-001).
+   * Generated on create/update; empty if not yet computed.
+   * Used for AI-powered job recommendations.
+   */
+  @Prop({ type: [Number], default: [] })
+  embedding: number[];
+
+  /** Hash of the source text used to generate `embedding` — re-embed only if changed. */
+  @Prop()
+  embeddingHash: string;
+
   @Prop()
   createdAt: Date;
 

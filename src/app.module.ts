@@ -25,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { UserProfilesModule } from './user-profiles/user-profiles.module';
 import { SavedJobsModule } from './saved-jobs/saved-jobs.module';
 import { ToolsModule } from './tools/tools.module';
+import { JobRecommendationsModule } from './job-recommendations/job-recommendations.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { ToolsModule } from './tools/tools.module';
     UserProfilesModule,
     SavedJobsModule,
     ToolsModule,
+    JobRecommendationsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -18,6 +18,7 @@ import { CreateUserProfileDto } from './dto/create-user-profile.dto';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 import type { IUser } from 'src/users/users.interface';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
+import { ProfileEmbeddingService } from './profile-embedding.service';
 
 @Injectable()
 export class UserProfilesService {
@@ -28,7 +29,13 @@ export class UserProfilesService {
     private profileModel: SoftDeleteModel<UserProfileDocument>,
     @InjectModel(User.name)
     private userModel: SoftDeleteModel<UserDocument>,
+    private readonly profileEmbedding: ProfileEmbeddingService,
   ) {}
+
+  /** Fire-and-forget embedding refresh — never blocks the response. */
+  private scheduleEmbeddingRefresh(profileId: unknown) {
+    void this.profileEmbedding.refreshEmbedding(profileId);
+  }
 
   // ─── HELPERS ──────────────────────────────────────────────
 
@@ -93,6 +100,7 @@ export class UserProfilesService {
         },
       );
       await this.syncJobSeekingWithPublicProfile(dto, user);
+      this.scheduleEmbeddingRefresh(existing._id);
       return this.profileModel.findById(existing._id);
     }
 
@@ -114,6 +122,7 @@ export class UserProfilesService {
       },
     );
 
+    this.scheduleEmbeddingRefresh(created._id);
     return created;
   }
 
@@ -147,6 +156,7 @@ export class UserProfilesService {
       },
     );
     await this.syncJobSeekingWithPublicProfile(dto, user);
+    this.scheduleEmbeddingRefresh(existing._id);
     return this.profileModel.findById(existing._id);
   }
 
