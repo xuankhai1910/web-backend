@@ -15,10 +15,16 @@ import type { IUser } from 'src/users/users.interface';
 import aqp from 'api-query-params';
 import { CvEmbeddingService } from 'src/cv-analysis/cv-embedding.service';
 import { buildJobKeywordClauses } from './utils/keyword-filter';
+import {
+  LEVEL_ALLOWED_TARGETS,
+  LEVEL_DISTANCE_SCORE,
+  LEVEL_ORDER,
+} from 'src/cv-analysis/cv-analysis.constants';
 
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
+  private readonly similarEmbeddingThreshold = 0.75;
 
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
@@ -79,6 +85,81 @@ export class JobsService {
     if (result.modifiedCount > 0) {
       this.logger.log(`Deactivated ${result.modifiedCount} expired jobs.`);
     }
+  }
+
+  private normalizeTitleTokens(title?: string): string[] {
+    return (title ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9+#.]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  private titleTokenSimilarity(sourceTitle?: string, candidateTitle?: string) {
+    const sourceTokens = new Set(this.normalizeTitleTokens(sourceTitle));
+    const candidateTokens = new Set(this.normalizeTitleTokens(candidateTitle));
+
+    if (sourceTokens.size === 0 || candidateTokens.size === 0) return 0;
+
+    let overlap = 0;
+    for (const token of sourceTokens) {
+      if (candidateTokens.has(token)) overlap++;
+    }
+
+    return overlap / Math.min(sourceTokens.size, candidateTokens.size);
+  }
+
+  private semanticJobSimilarity(
+    sourceEmbedding?: number[],
+    candidateEmbedding?: number[],
+  ) {
+    if (!sourceEmbedding?.length || !candidateEmbedding?.length) return 0;
+
+    return this.embedding.toScore(
+      this.embedding.cosineSimilarity(sourceEmbedding, candidateEmbedding),
+    );
+  }
+
+  private canonicalizeLevel(level?: string): string {
+    const aliasMap: Record<string, string> = {
+      ENTRY: 'INTERN',
+      MIDDLE: 'MID',
+      MIDLEVEL: 'MID',
+      'MID-LEVEL': 'MID',
+      SR: 'SENIOR',
+      JR: 'JUNIOR',
+      'TEAM LEAD': 'LEAD',
+      'TECH LEAD': 'LEAD',
+      MANAGER: 'LEAD',
+    };
+    const normalized = (level || '').toUpperCase().trim();
+    if (!normalized) return '';
+
+    const mapped = aliasMap[normalized] ?? normalized;
+    return (LEVEL_ORDER as readonly string[]).includes(mapped) ? mapped : '';
+  }
+
+  private levelSimilarity(sourceLevel?: string, candidateLevel?: string) {
+    const source = this.canonicalizeLevel(sourceLevel);
+    const candidate = this.canonicalizeLevel(candidateLevel);
+    if (!source || !candidate) return 1;
+
+    const allowed = LEVEL_ALLOWED_TARGETS[source];
+    if (allowed && !allowed.includes(candidate)) return 0;
+
+    const sourceIndex = LEVEL_ORDER.indexOf(
+      source as (typeof LEVEL_ORDER)[number],
+    );
+    const candidateIndex = LEVEL_ORDER.indexOf(
+      candidate as (typeof LEVEL_ORDER)[number],
+    );
+    if (sourceIndex === -1 || candidateIndex === -1) return 1;
+
+    const diff = Math.abs(sourceIndex - candidateIndex);
+    return LEVEL_DISTANCE_SCORE[diff] ?? 0;
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -253,15 +334,10 @@ export class JobsService {
     return this.jobModel.delete({ _id: id });
   }
 
-  /**
-   * Find up to `limit` active jobs that share at least one skill with the
-   * given job, or belong to the same company. Sorted by overlapping skill
-   * count (DESC). Excludes the source job itself and inactive/expired jobs.
-   */
   async findSimilar(jobId: string, limit = 6) {
     const job = await this.jobModel
       .findById(jobId)
-      .select('skills company')
+      .select('name skills company level embedding')
       .lean();
     if (!job) {
       throw new NotFoundException('Không tìm thấy công việc');
@@ -270,35 +346,61 @@ export class JobsService {
     const skills = job.skills ?? [];
     const companyId = job.company?._id;
 
-    const orClauses: Record<string, unknown>[] = [];
-    if (skills.length > 0) orClauses.push({ skills: { $in: skills } });
-    if (companyId) orClauses.push({ 'company._id': companyId });
-
-    if (orClauses.length === 0) return [];
-
     const candidates = await this.jobModel
       .find({
         _id: { $ne: jobId },
         isActive: true,
         endDate: { $gte: new Date() },
-        $or: orClauses,
       })
-      .select('-description -embedding -embeddingHash')
+      .select('-description -embeddingHash')
       .lean();
 
-    // Sort by overlapping-skill count DESC, then recency
     const skillSet = new Set(skills);
-    candidates.sort((a, b) => {
-      const aOverlap = (a.skills ?? []).filter((s) => skillSet.has(s)).length;
-      const bOverlap = (b.skills ?? []).filter((s) => skillSet.has(s)).length;
-      if (bOverlap !== aOverlap) return bOverlap - aOverlap;
+
+    const scoredCandidates = candidates
+      .map((candidate) => {
+        const semanticScore = this.semanticJobSimilarity(
+          job.embedding,
+          candidate.embedding,
+        );
+        const titleScore = Math.max(
+          semanticScore >= this.similarEmbeddingThreshold ? semanticScore : 0,
+          this.titleTokenSimilarity(job.name, candidate.name),
+        );
+        const skillOverlap = (candidate.skills ?? []).filter((s) =>
+          skillSet.has(s),
+        ).length;
+        const sameCompany =
+          String(candidate.company?._id ?? '') === String(companyId);
+        const levelScore = this.levelSimilarity(job.level, candidate.level);
+
+        return { candidate, titleScore, levelScore, skillOverlap, sameCompany };
+      })
+      .filter(
+        ({ titleScore, levelScore, skillOverlap, sameCompany }) =>
+          levelScore > 0 && (titleScore > 0 || skillOverlap > 0 || sameCompany),
+      );
+
+    // Sort by title/semantic match DESC, then level compatibility, then
+    // overlapping-skill count DESC, then same company, then recency.
+    scoredCandidates.sort((a, b) => {
+      if (b.titleScore !== a.titleScore) return b.titleScore - a.titleScore;
+      if (b.levelScore !== a.levelScore) return b.levelScore - a.levelScore;
+      if (b.skillOverlap !== a.skillOverlap) {
+        return b.skillOverlap - a.skillOverlap;
+      }
+      if (a.sameCompany !== b.sameCompany) return a.sameCompany ? -1 : 1;
+
       return (
-        new Date(b.createdAt ?? 0).getTime() -
-        new Date(a.createdAt ?? 0).getTime()
+        new Date(b.candidate.createdAt ?? 0).getTime() -
+        new Date(a.candidate.createdAt ?? 0).getTime()
       );
     });
 
-    return candidates.slice(0, limit);
+    return scoredCandidates.slice(0, limit).map(({ candidate }) => {
+      const { embedding, ...result } = candidate;
+      return result;
+    });
   }
 
   /**
