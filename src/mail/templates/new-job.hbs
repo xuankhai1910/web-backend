@@ -3,76 +3,154 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 
-
-<body
-    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';">
-    <table style="max-width: 80rem; min-height: 100vh; padding: 2rem; margin: 0 auto; background-color: #f5f5f5;">
+<body style="margin: 0; padding: 0; background-color: #eaf4fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <!-- Wrapper -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #eaf4fb; padding: 32px 16px;">
         <tr>
             <td align="center">
-                <table style="background-color: white; border-radius: 5px; padding: 20px;">
+                <!-- Main card -->
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(30, 120, 200, 0.08);">
+
+                    <!-- Header -->
                     <tr>
-                        <td>
-                            <div style="text-align: left; font-size: 20px;">Hỏi Dân IT</div>
-                        </td>
-                        <td>
-                            <div style="text-align: right; font-size: 20px;">Ít nhưng mà chất</div>
+                        <td style="background: linear-gradient(135deg, #1e78c8 0%, #3aa0f3 100%); padding: 28px 32px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td>
+                                        <div style="font-size: 26px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">DevMarket</div>
+                                        <div style="font-size: 13px; color: rgba(255,255,255,0.75); margin-top: 2px;">Your tech career starts here</div>
+                                    </td>
+                                   
+                                </tr>
+                            </table>
                         </td>
                     </tr>
+
+                    <!-- Greeting -->
                     <tr>
-                        <td colspan="2" style="margin: 15px 0; border-top: 1px solid rgba(5, 5, 5, 0.06);"></td>
-                    </tr>
-                    <tr>
-                        <td colspan="2">
-                            <div style="text-align: left;">
-                                <div style="font-size: 16px;">Hi {{receiver}},</div>
-                                <div style="font-size: 16px;">One of these jobs may be your next one. Find out today!
-                                </div>
+                        <td style="padding: 28px 32px 8px 32px;">
+                            <div style="font-size: 18px; font-weight: 600; color: #1a2e45;">Hi {{receiver}},</div>
+                            <div style="font-size: 15px; color: #5a7a99; margin-top: 8px; line-height: 1.6;">
+                                We found some new job openings that match your profile. One of these could be your next big opportunity!
                             </div>
                         </td>
                     </tr>
+
+                    <!-- Divider -->
                     <tr>
-                        <td colspan="2" style="margin: 15px 0; border-top: 1px dashed rgba(5, 5, 5, 0.06);"></td>
+                        <td style="padding: 16px 32px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="border-top: 1px solid #d6eaf8; font-size: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
                     </tr>
+
+                    <!-- Section title -->
                     <tr>
-                        <td colspan="2">
-                            <table>
+                        <td style="padding: 0 32px 12px 32px;">
+                            <div style="font-size: 13px; font-weight: 600; color: #1e78c8; text-transform: uppercase; letter-spacing: 1px;">Latest Jobs For You</div>
+                        </td>
+                    </tr>
+
+                    <!-- Job list -->
+                    <tr>
+                        <td style="padding: 0 32px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
                                 {{#each jobs}}
                                 <tr>
-                                    <td>
-                                        <div style="font-size: 16px;">
-                                            <a href="https://hoidanit.com.vn/" target="_blank"
-                                                style="text-decoration: none;">{{this.name}}</a>
-                                        </div>
-                                        <div style="font-size: 14px;">{{this.company}}</div>
-                                        <div style="font-size: 14px;">{{this.salary}}</div>
-                                        <div>
-                                            {{#each this.skills}}
-                                            <span style="font-size: 14px;">{{this}}</span>
-                                            {{/each}}
-                                        </div>
-                                        <div style="margin: 15px 0; border-top: 1px dashed rgba(5, 5, 5, 0.06);"></div>
+                                    <td style="background-color: #f4f9fe; border: 1px solid #d6eaf8; border-radius: 8px; padding: 16px 20px; margin-bottom: 12px; display: block;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td>
+                                                    <!-- Job name -->
+                                                    <div style="margin-bottom: 4px;">
+                                                        <a href="https://app-datn.xuankhai.dedyn.io/jobs" target="_blank"
+                                                            style="font-size: 16px; font-weight: 600; color: #1e78c8; text-decoration: none;">
+                                                            {{this.name}}
+                                                        </a>
+                                                    </div>
+                                                    <!-- Company -->
+                                                    <div style="font-size: 14px; color: #4a6b8a; margin-bottom: 4px;">
+                                                        &#127970; {{this.company}}
+                                                    </div>
+                                                    <!-- Salary -->
+                                                    <div style="font-size: 14px; color: #27ae60; font-weight: 500; margin-bottom: 10px;">
+                                                        &#128176; {{this.salary}}
+                                                    </div>
+                                                    <!-- Skills -->
+                                                    <div>
+                                                        {{#each this.skills}}
+                                                        <span style="display: inline-block; background-color: #ddeeff; color: #1e78c8; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 20px; margin-right: 6px; margin-bottom: 4px;">{{this}}</span>
+                                                        {{/each}}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </table>
                                     </td>
                                 </tr>
+                                <tr><td style="height: 10px; font-size: 0;">&nbsp;</td></tr>
                                 {{/each}}
                             </table>
                         </td>
                     </tr>
+
+                    <!-- CTA Button -->
                     <tr>
-                        <td colspan="2" style="text-align: center;">
-                            <a href="https://hoidanit.com.vn/" target="_blank"
-                                style="display: inline-block; width: 100%; height: 40px; line-height: 40px; cursor: pointer; border-radius: 5px; background-color: #ea1e30; color: white; border: none; outline: none; text-decoration: none; font-size: 16px;">
-                                Xem thêm job tại Hỏi Dân IT
-                            </a>
+                        <td style="padding: 24px 32px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td align="center">
+                                        <a href="https://app-datn.xuankhai.dedyn.io/jobs" target="_blank"
+                                            style="display: inline-block; background: linear-gradient(135deg, #1e78c8 0%, #3aa0f3 100%); color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 13px 40px; border-radius: 8px; letter-spacing: 0.3px;">
+                                            View All Jobs on DevMarket
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
+
+                    <!-- Divider -->
                     <tr>
-                        <td colspan="2">
-                            <div style="padding-top: 20px; text-align: left; font-size: 16px;">Cheers,</div>
-                            <div style="text-align: left; font-size: 16px;">Eric.</div>
+                        <td style="padding: 0 32px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="border-top: 1px solid #d6eaf8; font-size: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
+
+                    <!-- Footer sign-off -->
+                    <tr>
+                        <td style="padding: 20px 32px 8px 32px;">
+                            <div style="font-size: 15px; color: #5a7a99;">Cheers,</div>
+                            <div style="font-size: 15px; font-weight: 600; color: #1a2e45;">DevMarket Team</div>
+                        </td>
+                    </tr>
+
+                    <!-- Footer bar -->
+                    <tr>
+                        <td style="background-color: #f4f9fe; border-top: 1px solid #d6eaf8; padding: 16px 32px; border-radius: 0 0 12px 12px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td>
+                                        <div style="font-size: 12px; color: #8aabcb;">
+                                            &copy; 2026 DevMarket &nbsp;&bull;&nbsp;
+                                            <a href="https://app-datn.xuankhai.dedyn.io/" target="_blank" style="color: #1e78c8; text-decoration: none;">app-datn.xuankhai.dedyn.io</a>
+                                        </div>
+                                        <div style="font-size: 11px; color: #aac4d8; margin-top: 4px;">You received this email because you subscribed to job alerts on DevMarket.</div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
                 </table>
             </td>
         </tr>
