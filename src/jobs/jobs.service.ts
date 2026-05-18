@@ -290,9 +290,18 @@ export class JobsService {
     // Re-embed only if the searchable text actually changed.
     const merged = {
       name: updateJobDto.name ?? currentJob?.name,
+      category: updateJobDto.category ?? currentJob?.category,
+      specialization: updateJobDto.specialization ?? currentJob?.specialization,
       skills: updateJobDto.skills ?? currentJob?.skills,
       level: updateJobDto.level ?? currentJob?.level,
+      jobType: updateJobDto.jobType ?? currentJob?.jobType,
+      workMode: updateJobDto.workMode ?? currentJob?.workMode,
       location: updateJobDto.location ?? currentJob?.location,
+      yearsOfExperience:
+        updateJobDto.yearsOfExperience ?? currentJob?.yearsOfExperience,
+      requirements: updateJobDto.requirements ?? currentJob?.requirements,
+      responsibilities:
+        updateJobDto.responsibilities ?? currentJob?.responsibilities,
       description: updateJobDto.description ?? currentJob?.description,
     };
     const newText = this.embedding.buildJobText(merged);
@@ -337,7 +346,7 @@ export class JobsService {
   async findSimilar(jobId: string, limit = 6) {
     const job = await this.jobModel
       .findById(jobId)
-      .select('name skills company level embedding')
+      .select('name category specialization skills company level embedding')
       .lean();
     if (!job) {
       throw new NotFoundException('Không tìm thấy công việc');
@@ -414,7 +423,9 @@ export class JobsService {
   }> {
     const jobs = await this.jobModel
       .find({ isActive: true })
-      .select('name skills level location description embedding embeddingHash')
+      .select(
+        'name category specialization skills level jobType workMode location yearsOfExperience requirements responsibilities description embedding embeddingHash',
+      )
       .lean();
 
     let embedded = 0;

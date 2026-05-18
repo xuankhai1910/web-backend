@@ -1,12 +1,66 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
+import {
+  JOB_CATEGORY_VALUES,
+  JOB_LEVELS,
+  JOB_TYPES,
+  SALARY_CURRENCY,
+  SPECIALIZATION_VALUES,
+  WORK_MODES,
+} from '../jobs.constants';
 
 export type JobDocument = HydratedDocument<Job>;
+
+/**
+ * Salary block.
+ *
+ * Two display modes:
+ *  - `isNegotiable = true` → FE renders "Thỏa thuận" and ignores min/max.
+ *  - `isNegotiable = false` → at least one of `min`/`max` must be set.
+ *
+ * Currency is fixed to VND for now; leaving the field on the document so we
+ * can extend to multi-currency without a second migration.
+ */
+@Schema({ _id: false })
+export class JobSalary {
+  @Prop({ type: Number, min: 0 })
+  min?: number;
+
+  @Prop({ type: Number, min: 0 })
+  max?: number;
+
+  @Prop({ type: Boolean, default: false })
+  isNegotiable: boolean;
+
+  @Prop({ type: String, default: SALARY_CURRENCY })
+  currency: string;
+}
+const JobSalarySchema = SchemaFactory.createForClass(JobSalary);
+
+/** Optional years-of-experience requirement (min/max in years). */
+@Schema({ _id: false })
+export class JobYearsOfExperience {
+  @Prop({ type: Number, min: 0 })
+  min?: number;
+
+  @Prop({ type: Number, min: 0 })
+  max?: number;
+}
+const JobYearsOfExperienceSchema =
+  SchemaFactory.createForClass(JobYearsOfExperience);
 
 @Schema({ timestamps: true })
 export class Job {
   @Prop({ required: true })
   name: string;
+
+  /** IT job family (e.g. "Software Engineering"). */
+  @Prop({ required: true, enum: JOB_CATEGORY_VALUES, index: true })
+  category: string;
+
+  /** Concrete role within the category (e.g. "Backend Developer"). */
+  @Prop({ required: true, enum: SPECIALIZATION_VALUES, index: true })
+  specialization: string;
 
   @Prop()
   skills: string[];
@@ -23,14 +77,32 @@ export class Job {
   @Prop()
   location: string;
 
-  @Prop()
-  salary: number;
+  @Prop({ type: JobSalarySchema, default: () => ({ isNegotiable: false }) })
+  salary: JobSalary;
 
   @Prop()
   quantity: number;
 
-  @Prop()
+  @Prop({ enum: JOB_LEVELS, index: true })
   level: string;
+
+  @Prop({ enum: JOB_TYPES, default: 'Full-time', index: true })
+  jobType: string;
+
+  @Prop({ enum: WORK_MODES, default: 'Onsite', index: true })
+  workMode: string;
+
+  @Prop({ type: JobYearsOfExperienceSchema })
+  yearsOfExperience?: JobYearsOfExperience;
+
+  @Prop({ type: [String], default: [] })
+  benefits: string[];
+
+  @Prop({ type: [String], default: [] })
+  requirements: string[];
+
+  @Prop({ type: [String], default: [] })
+  responsibilities: string[];
 
   @Prop()
   description: string;
@@ -87,3 +159,9 @@ export const JobSchema = SchemaFactory.createForClass(Job);
 JobSchema.index({ isActive: 1, endDate: 1 });
 // Index for skill-based pre-filter when running recommendations.
 JobSchema.index({ skills: 1 });
+// IT-domain filter combinations used by the FE filter sidebar.
+JobSchema.index({ category: 1, isActive: 1 });
+JobSchema.index({ specialization: 1, isActive: 1 });
+JobSchema.index({ jobType: 1, workMode: 1 });
+// Salary range queries (?salary.min[$gte]=…&salary.max[$lte]=…).
+JobSchema.index({ 'salary.min': 1, 'salary.max': 1 });

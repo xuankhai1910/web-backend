@@ -20,3 +20,10 @@ public/images/resume
 public/images/pdf
 **/*.log
 .DS_Store
+
+# Seed / enrich / JD-generation artefacts (chỉ dùng local, không cần đẩy lên server)
+data
+crawl-data
+**/seed-*.ts
+**/enrich-*.ts
+**/generate-jd.ts

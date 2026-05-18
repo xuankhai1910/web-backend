@@ -29,6 +29,9 @@ import { JobRecommendationsModule } from './job-recommendations/job-recommendati
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot({
       throttlers: [
@@ -51,9 +54,6 @@ import { JobRecommendationsModule } from './job-recommendations/job-recommendati
         },
       }),
       inject: [ConfigService],
-    }),
-    ConfigModule.forRoot({
-      isGlobal: true,
     }),
     UsersModule,
     AuthModule,

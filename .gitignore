@@ -60,3 +60,17 @@ documentation
 docs
 
 public
+# --- Local seed / enrich / JD-generation artefacts (never push) ---
+/data
+/crawl-data
+/upload
+gen-jd.log
+enrich-*.log
+seed*.log
+probe-*.txt
+probe-*.cjs
+topcv-sample.html
+
+# One-off local helper scripts
+src/databases/jd-sync-cache.ts
+src/databases/jd-field-audit.ts

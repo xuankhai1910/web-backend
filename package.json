@@ -17,7 +17,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "seed:kaggle": "ts-node -r tsconfig-paths/register src/databases/seed-kaggle.ts"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
@@ -76,6 +77,7 @@
     "@types/passport-local": "^1.0.38",
     "@types/pdf-parse": "^1.1.5",
     "@types/supertest": "^6.0.2",
+    "csv-parse": "^6.2.1",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

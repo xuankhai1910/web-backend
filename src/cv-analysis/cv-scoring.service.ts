@@ -19,6 +19,10 @@ export interface ExtractedCvData {
   yearsOfExperience: number;
   /** Position the candidate is applying for (e.g. "Backend Developer"). */
   desiredJobTitle?: string;
+  /** IT job family inferred from the CV (matches JOB_CATEGORIES). */
+  desiredCategory?: string;
+  /** Concrete specialization inferred from the CV (matches SPECIALIZATIONS). */
+  desiredSpecialization?: string;
   education: string;
   preferredLocations: string[];
   summary: string;
@@ -27,6 +31,8 @@ export interface ExtractedCvData {
 /** Minimal job shape required by the scoring engine. */
 export interface ScorableJob {
   name?: string;
+  category?: string;
+  specialization?: string;
   skills?: string[];
   level?: string;
   location?: string;
@@ -38,6 +44,8 @@ export interface ScoreBreakdown {
   titleScore: number;
   /** Similarity between the candidate's desiredJobTitle and the job name. */
   desiredTitleScore: number;
+  /** 1 if CV.desiredSpecialization == job.specialization, 0.5 if only category matches, 0 otherwise. */
+  specializationScore: number;
   levelScore: number;
   locationScore: number;
   /** [0, 1] cosine-derived similarity; 0 when no embedding available. */
@@ -214,6 +222,29 @@ export class CvScoringService {
   }
 
   /**
+   * IT-domain alignment between the candidate and the job.
+   *  - 1.0 if specializations match exactly (e.g. both "Backend Developer").
+   *  - 0.5 if only categories match (same family, different role).
+   *  - 0.0 if neither matches.
+   * Returns `null` when the signal is not applicable (CV or Job lacks the
+   * data); callers should redistribute the weight.
+   */
+  specializationMatchScore(
+    cv: Pick<ExtractedCvData, 'desiredCategory' | 'desiredSpecialization'>,
+    job: Pick<ScorableJob, 'category' | 'specialization'>,
+  ): number | null {
+    const cvSpec = cv.desiredSpecialization?.trim();
+    const cvCat = cv.desiredCategory?.trim();
+    const jobSpec = job.specialization?.trim();
+    const jobCat = job.category?.trim();
+    if (!jobSpec && !jobCat) return null;
+    if (!cvSpec && !cvCat) return null;
+    if (cvSpec && jobSpec && cvSpec === jobSpec) return 1.0;
+    if (cvCat && jobCat && cvCat === jobCat) return 0.5;
+    return 0;
+  }
+
+  /**
    * Final weighted score.
    * If `vectorScore` is provided (> 0), uses HYBRID_WEIGHTS; otherwise falls
    * back to pure rule-based SCORE_WEIGHTS.
@@ -237,6 +268,10 @@ export class CvScoringService {
     const desiredTitleScoreRaw = this.desiredTitleScore(
       extracted.desiredJobTitle || '',
       job.name || '',
+    );
+    const specializationScoreRaw = this.specializationMatchScore(
+      extracted,
+      job,
     );
     const levelScore = this.levelMatchScore(extracted.level, job.level || '');
     const locationScore = this.locationMatchScore(
@@ -265,6 +300,12 @@ export class CvScoringService {
         score: desiredTitleScoreRaw,
       });
     }
+    if (specializationScoreRaw !== null) {
+      contributions.push({
+        weight: w.specialization,
+        score: specializationScoreRaw,
+      });
+    }
 
     const totalWeight = contributions.reduce((s, c) => s + c.weight, 0);
     const weightedSum = contributions.reduce(
@@ -282,6 +323,8 @@ export class CvScoringService {
         // weight has already been redistributed in the final `score` above.
         titleScore: Math.round((titleScoreRaw ?? 0) * 100) / 100,
         desiredTitleScore: Math.round((desiredTitleScoreRaw ?? 0) * 100) / 100,
+        specializationScore:
+          Math.round((specializationScoreRaw ?? 0) * 100) / 100,
         levelScore: Math.round(levelScore * 100) / 100,
         locationScore: Math.round(locationScore * 100) / 100,
         vectorScore: Math.round(vectorScore * 100) / 100,
@@ -299,7 +342,8 @@ export class CvScoringService {
     return (
       breakdown.skillScore > RECOMMEND_THRESHOLD.skillScore ||
       breakdown.titleScore > RECOMMEND_THRESHOLD.titleScore ||
-      breakdown.desiredTitleScore > RECOMMEND_THRESHOLD.desiredTitleScore
+      breakdown.desiredTitleScore > RECOMMEND_THRESHOLD.desiredTitleScore ||
+      breakdown.specializationScore > RECOMMEND_THRESHOLD.specializationScore
     );
   }
 }

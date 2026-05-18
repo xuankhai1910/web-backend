@@ -13,7 +13,13 @@
  */
 export function buildJobKeywordClauses(
   keyword: string | undefined | null,
-  fields: string[] = ['name', 'skills', 'company.name'],
+  fields: string[] = [
+    'name',
+    'skills',
+    'company.name',
+    'category',
+    'specialization',
+  ],
 ): Record<string, unknown>[] | null {
   if (!keyword) return null;
   const tokens = String(keyword).trim().split(/\s+/).filter(Boolean);

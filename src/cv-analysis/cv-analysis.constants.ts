@@ -5,11 +5,24 @@
 
 // ─── GEMINI ───────────────────────────────────────────────
 // Model fallback chain — each model has its own free-tier daily quota.
+// Order = try this first → fall back as each gets exhausted. We rank by
+// total daily capacity across keys (RPD × number of keys) so bulk jobs
+// drain the cheapest, highest-quota model first and keep premium models
+// (3-flash) as fallback for quality.
+//
+// Gemma models DON'T support responseSchema/JSON-mode — generate-jd.ts
+// switches to text-mode + manual JSON extraction for any model whose id
+// starts with `gemma-`. Anything that doesn't need structured output can
+// use them transparently.
 export const GEMINI_MODEL_CHAIN = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
+  'gemini-3.1-flash-lite', // 15 RPM, 500 RPD/key — best JSON-mode bulk
+  'gemini-2.5-flash', // 10 RPM, 250 RPD/key
+  'gemini-2.5-flash-lite', // 10 RPM, ~200 RPD/key
+  'gemini-2.0-flash', // legacy fallback
+  'gemini-2.0-flash-lite', // legacy fallback
+  'gemma-4-31b-it', // 15 RPM, 1.5K RPD/key — text-mode, huge quota
+  'gemma-4-26b-it', // 15 RPM, 1.5K RPD/key — text-mode, huge quota
+  'gemini-3-flash', // 5 RPM, 20 RPD/key — premium quality, last resort
 ] as const;
 
 // Retry strategy on RPM-throttled 429
@@ -18,25 +31,29 @@ export const GEMINI_RETRY_DELAYS_MS = [30_000, 60_000];
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
 // Rule-based weights — used when no embedding is available.
-//   final = skill*0.30 + skillsInTitle*0.05 + desiredTitle*0.20 + level*0.30 + location*0.15
+//   final = skill*0.25 + skillsInTitle*0.05 + desiredTitle*0.15
+//         + specialization*0.15 + level*0.25 + location*0.15
 export const SCORE_WEIGHTS = {
-  skill: 0.3,
+  skill: 0.25,
   title: 0.05,
-  desiredTitle: 0.2,
-  level: 0.3,
+  desiredTitle: 0.15,
+  specialization: 0.15,
+  level: 0.25,
   location: 0.15,
 } as const;
 
 // Hybrid weights — used when both CV and Job have embeddings.
-//   final = vector*0.25 + skill*0.20 + skillsInTitle*0.05 + desiredTitle*0.15 + level*0.25 + location*0.10
+//   final = vector*0.22 + skill*0.18 + skillsInTitle*0.05 + desiredTitle*0.10
+//         + specialization*0.15 + level*0.20 + location*0.10
 // Level kept high to avoid recommending jobs whose seniority is far from the CV.
-// `desiredTitle` rewards matching the role the candidate is actually applying for.
+// `specialization` aligns CV ↔ Job along the IT taxonomy (category + role).
 export const HYBRID_WEIGHTS = {
-  vector: 0.25,
-  skill: 0.2,
+  vector: 0.22,
+  skill: 0.18,
   title: 0.05,
-  desiredTitle: 0.15,
-  level: 0.25,
+  desiredTitle: 0.1,
+  specialization: 0.15,
+  level: 0.2,
   location: 0.1,
 } as const;
 
@@ -45,6 +62,7 @@ export const RECOMMEND_THRESHOLD = {
   skillScore: 0.3,
   titleScore: 0.5,
   desiredTitleScore: 0.5,
+  specializationScore: 0.5,
 } as const;
 
 // Title-match scoring: hits / TITLE_MATCH_NORMALIZER, capped at 1.

@@ -5,6 +5,7 @@ import { CvAnalysisController } from './cv-analysis.controller';
 import { CvExtractionService } from './cv-extraction.service';
 import { CvScoringService } from './cv-scoring.service';
 import { CvEmbeddingService } from './cv-embedding.service';
+import { GeminiKeyRotator } from './gemini-key-rotator.service';
 import { CvAnalysis, CvAnalysisSchema } from './schemas/cv-analysis.schema';
 import { Job, JobSchema } from 'src/jobs/schemas/job.schema';
 import { User, UserSchema } from 'src/users/schemas/user.schema';
@@ -21,11 +22,12 @@ import { Resume, ResumeSchema } from 'src/resumes/schemas/resume.schema';
   ],
   controllers: [CvAnalysisController],
   providers: [
+    GeminiKeyRotator,
     CvAnalysisService,
     CvExtractionService,
     CvScoringService,
     CvEmbeddingService,
   ],
-  exports: [CvAnalysisService, CvEmbeddingService],
+  exports: [CvAnalysisService, CvEmbeddingService, GeminiKeyRotator],
 })
 export class CvAnalysisModule {}

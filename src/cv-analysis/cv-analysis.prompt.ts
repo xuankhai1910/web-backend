@@ -1,4 +1,27 @@
 import { Type } from '@google/genai';
+import {
+  JOB_CATEGORY_VALUES,
+  SPECIALIZATIONS_BY_CATEGORY,
+  SPECIALIZATION_VALUES,
+} from '../jobs/jobs.constants';
+
+/**
+ * Render the IT taxonomy (category → specialization list) directly into the
+ * prompt so the model picks values exclusively from our enum and the response
+ * schema's `enum` constraint never rejects a valid extraction.
+ */
+const CATEGORY_TAXONOMY_BLOCK = (
+  Object.keys(SPECIALIZATIONS_BY_CATEGORY) as Array<
+    keyof typeof SPECIALIZATIONS_BY_CATEGORY
+  >
+)
+  .map(
+    (cat) =>
+      `    * "${cat}": ${SPECIALIZATIONS_BY_CATEGORY[cat]
+        .map((s) => `"${s}"`)
+        .join(', ')}`,
+  )
+  .join('\n');
 
 /**
  * Prompt and response schema used to ask Gemini to extract structured data
@@ -61,6 +84,18 @@ GENERAL RULE: Extract ONLY what is explicitly written in the CV. Do not invent, 
 
 - "summary": A brief 1–2 sentence professional summary of the candidate (factual, no embellishment).
 
+- "desiredCategory": **Map the candidate to ONE IT job family.** Use the candidate's desiredJobTitle, recent experience and project tech-stacks. **Pick exactly one value from this closed list:**
+${CATEGORY_TAXONOMY_BLOCK}
+  Empty string only when the CV is clearly not IT-related.
+
+- "desiredSpecialization": **Pick the specific role within the chosen desiredCategory.** Must be one of the specializations listed for that category above — never a value from a different category. Examples:
+    * desiredJobTitle "Senior Backend Engineer" + Node.js/Spring/.NET projects → category "Software Engineering", specialization "Backend Developer".
+    * desiredJobTitle "Tester" + Selenium/Playwright projects → category "Software Testing", specialization "Automation Tester".
+    * desiredJobTitle "Data Engineer" + Spark/Airflow projects → category "Data Science", specialization "Data Engineer".
+    * desiredJobTitle "DevOps" + AWS/K8s/Terraform → category "IT Infrastructure and Operations", specialization "DevOps Engineer".
+    * desiredJobTitle "AI Engineer" + PyTorch/LLM projects → category "Artificial Intelligence", specialization "AI Engineer".
+  Empty string only if no specialization clearly fits.
+
 Output strict JSON matching the response schema. No commentary, no markdown.`;
 
 export const CV_EXTRACTION_RESPONSE_SCHEMA = {
@@ -76,6 +111,15 @@ export const CV_EXTRACTION_RESPONSE_SCHEMA = {
     },
     yearsOfExperience: { type: Type.NUMBER },
     desiredJobTitle: { type: Type.STRING },
+    desiredCategory: {
+      type: Type.STRING,
+      // Add empty string so "non-IT CV" is representable.
+      enum: ['', ...JOB_CATEGORY_VALUES],
+    },
+    desiredSpecialization: {
+      type: Type.STRING,
+      enum: ['', ...SPECIALIZATION_VALUES],
+    },
     education: { type: Type.STRING },
     preferredLocations: {
       type: Type.ARRAY,
@@ -88,6 +132,8 @@ export const CV_EXTRACTION_RESPONSE_SCHEMA = {
     'level',
     'yearsOfExperience',
     'desiredJobTitle',
+    'desiredCategory',
+    'desiredSpecialization',
     'education',
     'summary',
   ],

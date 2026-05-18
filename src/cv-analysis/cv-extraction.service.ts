@@ -1,12 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  OnModuleInit,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { GoogleGenAI } from '@google/genai';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PDFParse } from 'pdf-parse';
@@ -24,15 +17,15 @@ import {
   CV_EXTRACTION_RESPONSE_SCHEMA,
 } from './cv-analysis.prompt';
 import type { ExtractedCvData } from './cv-scoring.service';
+import { GeminiKeyRotator } from './gemini-key-rotator.service';
 
 /**
  * Extracts structured data from a CV file via Gemini AI, with a non-AI
  * keyword-matching fallback for when the API is unavailable / quota-exhausted.
  */
 @Injectable()
-export class CvExtractionService implements OnModuleInit {
+export class CvExtractionService {
   private readonly logger = new Logger(CvExtractionService.name);
-  private genAI: GoogleGenAI | null = null;
 
   // ── Skill dictionary cache (rebuilt from active jobs every TTL) ──
   private skillDictCache: { skills: Set<string>; expiresAt: number } | null =
@@ -40,20 +33,8 @@ export class CvExtractionService implements OnModuleInit {
 
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
-    private configService: ConfigService,
+    private rotator: GeminiKeyRotator,
   ) {}
-
-  onModuleInit() {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    if (apiKey) {
-      this.genAI = new GoogleGenAI({ apiKey });
-      this.logger.log('Gemini AI initialized successfully');
-    } else {
-      this.logger.warn(
-        'GEMINI_API_KEY not configured — CV analysis will use keyword fallback',
-      );
-    }
-  }
 
   // ─── PUBLIC API ───────────────────────────────────────────
 
@@ -81,9 +62,9 @@ export class CvExtractionService implements OnModuleInit {
   // ─── GEMINI ───────────────────────────────────────────────
 
   private async analyzeWithGemini(filePath: string): Promise<ExtractedCvData> {
-    if (!this.genAI) {
+    if (!this.rotator.isAvailable()) {
       throw new BadRequestException(
-        'Gemini API is not configured. Set GEMINI_API_KEY in .env',
+        'Gemini API is not configured. Set GEMINI_API_KEY or GEMINI_API_KEYS in .env',
       );
     }
 
@@ -91,14 +72,16 @@ export class CvExtractionService implements OnModuleInit {
     const mimeType = this.detectMimeType(filePath);
     const base64Data = fileBuffer.toString('base64');
 
-    let lastError: any = null;
+    let lastError: Error | null = null;
 
     for (const modelName of GEMINI_MODEL_CHAIN) {
       let modelExhausted = false;
 
       for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES; attempt++) {
+        const picked = this.rotator.next();
+        if (!picked) throw new BadRequestException('No Gemini key available');
         try {
-          const response = await this.genAI.models.generateContent({
+          const response = await picked.client.models.generateContent({
             model: modelName,
             contents: [
               {
@@ -111,7 +94,7 @@ export class CvExtractionService implements OnModuleInit {
             ],
             config: {
               responseMimeType: 'application/json',
-              responseSchema: CV_EXTRACTION_RESPONSE_SCHEMA as any,
+              responseSchema: CV_EXTRACTION_RESPONSE_SCHEMA as never,
             },
           });
 
@@ -126,13 +109,19 @@ export class CvExtractionService implements OnModuleInit {
           );
           parsed.preferredLocations = parsed.preferredLocations ?? [];
           parsed.desiredJobTitle = (parsed.desiredJobTitle ?? '').trim();
+          parsed.desiredCategory = (parsed.desiredCategory ?? '').trim();
+          parsed.desiredSpecialization = (
+            parsed.desiredSpecialization ?? ''
+          ).trim();
 
-          this.logger.log(`Gemini model '${modelName}' succeeded`);
+          this.logger.log(
+            `Gemini model '${modelName}' (key ...${picked.key.slice(-6)}) succeeded`,
+          );
           return parsed;
         } catch (error) {
-          lastError = error;
-          const msg = error?.message || '';
-          const status = error?.status;
+          lastError = error as Error;
+          const msg = (error as Error)?.message || '';
+          const status = (error as { status?: number })?.status;
           const is429 =
             status === 429 ||
             msg.includes('429') ||
@@ -172,22 +161,25 @@ export class CvExtractionService implements OnModuleInit {
             this.logger.warn(
               `Model '${modelName}' ${reason}, switching to next model...`,
             );
+            if (isDailyExhausted) this.rotator.markDailyExhausted(picked.key);
             modelExhausted = true;
             break;
           }
 
           if (is429 && attempt < GEMINI_MAX_RETRIES) {
+            this.rotator.markRateLimited(picked.key, 60);
             const delay =
               GEMINI_RETRY_DELAYS_MS[attempt] ??
               GEMINI_RETRY_DELAYS_MS[GEMINI_RETRY_DELAYS_MS.length - 1];
             this.logger.warn(
-              `Gemini '${modelName}' rate limited (RPM). Retry ${attempt + 1}/${GEMINI_MAX_RETRIES} in ${delay / 1000}s...`,
+              `Gemini '${modelName}' rate limited (key ...${picked.key.slice(-6)}). Retry ${attempt + 1}/${GEMINI_MAX_RETRIES} in ${delay / 1000}s with next key...`,
             );
             await new Promise((r) => setTimeout(r, delay));
             continue;
           }
 
           if (is429) {
+            this.rotator.markRateLimited(picked.key, 60);
             this.logger.warn(
               `Model '${modelName}' still 429 after ${GEMINI_MAX_RETRIES} retries, switching to next model...`,
             );
@@ -247,6 +239,8 @@ export class CvExtractionService implements OnModuleInit {
       level: 'JUNIOR',
       yearsOfExperience: 0,
       desiredJobTitle: '',
+      desiredCategory: '',
+      desiredSpecialization: '',
       education: '',
       preferredLocations: detectedLocations,
       summary: 'Analyzed using keyword matching fallback.',

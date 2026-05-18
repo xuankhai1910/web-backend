@@ -5,9 +5,28 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import { Subscriber } from 'src/subscribers/schemas/subscriber.schema';
 import type { SubscriberDocument } from 'src/subscribers/schemas/subscriber.schema';
 import { Job } from 'src/jobs/schemas/job.schema';
-import type { JobDocument } from 'src/jobs/schemas/job.schema';
+import type { JobDocument, JobSalary } from 'src/jobs/schemas/job.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Cron } from '@nestjs/schedule';
+
+/**
+ * Format a job's salary block for display in an email.
+ *  - Negotiable → "Thỏa thuận".
+ *  - Range with both min and max → "10,000,000 - 20,000,000 VND".
+ *  - Only min → "Từ 10,000,000 VND". Only max → "Tối đa 20,000,000 VND".
+ */
+function formatSalary(salary?: JobSalary): string {
+  if (!salary || salary.isNegotiable) return 'Thỏa thuận';
+  const currency = salary.currency || 'VND';
+  const fmt = (n: number) =>
+    `${n}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' ' + currency;
+  if (typeof salary.min === 'number' && typeof salary.max === 'number') {
+    return `${fmt(salary.min)} - ${fmt(salary.max)}`;
+  }
+  if (typeof salary.min === 'number') return `Từ ${fmt(salary.min)}`;
+  if (typeof salary.max === 'number') return `Tối đa ${fmt(salary.max)}`;
+  return 'Thỏa thuận';
+}
 
 @Controller('mail')
 export class MailController {
@@ -38,8 +57,7 @@ export class MailController {
           return {
             name: item.name,
             company: item.company?.name,
-            salary:
-              `${item.salary}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' đ',
+            salary: formatSalary(item.salary),
             skills: item.skills,
           };
         });
