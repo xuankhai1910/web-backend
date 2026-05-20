@@ -157,6 +157,10 @@ export const JobSchema = SchemaFactory.createForClass(Job);
 // Compound index for active-job queries (recommendation, public listing).
 // Mongo can use this to filter isActive + endDate >= now without collection scan.
 JobSchema.index({ isActive: 1, endDate: 1 });
+// Hot path: homepage "latest jobs" and any list sorted by recency. Lets
+// Mongo serve `find({isActive:true}).sort({createdAt:-1}).limit(N)` purely
+// from index without scanning + in-memory sort.
+JobSchema.index({ isActive: 1, createdAt: -1 });
 // Index for skill-based pre-filter when running recommendations.
 JobSchema.index({ skills: 1 });
 // IT-domain filter combinations used by the FE filter sidebar.

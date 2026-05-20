@@ -40,6 +40,7 @@ import {
 } from '../jobs/jobs.constants';
 import type { JobCategory } from '../jobs/jobs.constants';
 import { CvEmbeddingService } from '../cv-analysis/cv-embedding.service';
+import { resolveProvince } from './vietnam-provinces';
 
 interface CliArgs {
   csv: string;
@@ -338,12 +339,12 @@ function parseExperience(
   return undefined;
 }
 
-// ─── Location cleanup ("Hà Nội & 2 nơi khác" → "Hà Nội") ──────────────────
+// ─── Location cleanup → one of Vietnam's 34 provinces (post-2025 merger) ──
+// Falls back to 'Hà Nội' so seeded jobs always carry a valid filter value;
+// downstream normalize-locations.ts will re-resolve if more company context
+// is later available.
 function cleanLocation(raw: string): string {
-  return (raw || '')
-    .split(/[&,]/)[0]
-    .replace(/\(mới\)/gi, '')
-    .trim();
+  return resolveProvince(raw || '') ?? 'Hà Nội';
 }
 
 // ─── Clean dirty prefixes from title/company ("Pro\n", "GẤP\n", "HOT\n") ───
@@ -674,10 +675,12 @@ async function main() {
           ? inferSkillsFromTitle(`${title} ${enrichedJob.description}`)
           : inferSkillsFromTitle(title);
 
+    // Resolve to a canonical province. Prefer the enriched (TopCV JSON-LD)
+    // streetAddress when present since it tends to carry the most context;
+    // resolveProvince() ignores the street-level noise and returns the city.
     const location =
-      enrichedJob?.streetAddress ||
-      cleanLocation(pick(r, 'location', 'city')) ||
-      'Hà Nội';
+      resolveProvince(enrichedJob?.streetAddress || '') ??
+      cleanLocation(pick(r, 'location', 'city'));
     const jobType =
       enrichedJob?.employmentType === 'PART_TIME'
         ? 'Part-time'

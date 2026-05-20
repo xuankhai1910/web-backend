@@ -32,11 +32,9 @@ export class SavedJobsService {
       throw new BadRequestException('jobId không hợp lệ');
     }
 
-    const job = await this.jobModel.findById(jobId).select('_id');
-    if (!job) {
-      throw new NotFoundException('Không tìm thấy công việc');
-    }
-
+    // Check existing FIRST. If user is removing (existing row found), we don't
+    // need to verify the underlying job still exists — orphan saved-job rows
+    // (where the job was soft-deleted) must still be removable by the user.
     const existing = await this.savedJobModel.findOne({
       userId: user._id,
       jobId,
@@ -45,6 +43,13 @@ export class SavedJobsService {
     if (existing) {
       await this.savedJobModel.deleteOne({ _id: existing._id });
       return { saved: false };
+    }
+
+    // Creating a new save — now verify the job actually exists and is not
+    // soft-deleted (don't let users save tombstone refs).
+    const job = await this.jobModel.findById(jobId).select('_id');
+    if (!job) {
+      throw new NotFoundException('Không tìm thấy công việc');
     }
 
     await this.savedJobModel.create({
@@ -56,7 +61,7 @@ export class SavedJobsService {
   }
 
   async findAll(currentPage: number, limit: number, qs: string, user: IUser) {
-    const { filter, sort, projection, population } = aqp(qs);
+    const { filter, sort } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
 
@@ -98,26 +103,42 @@ export class SavedJobsService {
     const totalItems = await this.savedJobModel.countDocuments(filter);
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
-    const defaultPopulate = [
-      {
-        path: 'jobId',
-        select:
-          '-embedding -embeddingHash -description -createdBy -updatedBy -deletedBy',
-      },
-    ];
-
-    const result = await this.savedJobModel
+    // Fetch raw saved-job rows without populate so the original ObjectId in
+    // `jobId` is preserved (Mongoose populate replaces the field, and
+    // mongoose-delete strips soft-deleted refs → we'd lose both the doc and
+    // the ability to unsave by jobId for orphan rows).
+    const rawSaves = await this.savedJobModel
       .find(filter)
       .skip(offset)
       .limit(defaultLimit)
       .sort((sort as Record<string, 1 | -1>) ?? { savedAt: -1 })
-      .populate(
-        population && (population as any[]).length
-          ? population
-          : defaultPopulate,
-      )
-      .select(projection as any)
-      .exec();
+      .lean();
+
+    // Pull referenced jobs *including* soft-deleted ones so FE can render
+    // "Việc làm đã bị gỡ" for those. Expired-but-active=false jobs are not
+    // soft-deleted, so they would come through `find` anyway.
+    // Cast: saved-job schema types jobId as Schema.Types.ObjectId; runtime is
+    // Types.ObjectId. Mongoose query types only accept the latter.
+    const jobIds = rawSaves.map(
+      (s) => new mongoose.Types.ObjectId(String(s.jobId)),
+    );
+    const jobs = jobIds.length
+      ? await this.jobModel
+          .findWithDeleted({ _id: { $in: jobIds } })
+          .select(
+            '-embedding -embeddingHash -description -createdBy -updatedBy -deletedBy',
+          )
+          .lean()
+      : [];
+    const jobMap = new Map(jobs.map((j) => [String(j._id), j]));
+
+    // Final shape: keep raw `jobId` as ObjectId string + add resolved `job`
+    // (null if the underlying Job was hard-deleted). `job.deleted` indicates
+    // soft-delete; `job.isActive=false` or past `endDate` indicates expired.
+    const result = rawSaves.map((s) => ({
+      ...s,
+      job: jobMap.get(String(s.jobId)) ?? null,
+    }));
 
     return {
       meta: {

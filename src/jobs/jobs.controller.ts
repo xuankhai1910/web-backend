@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiBody } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { JobsService } from './jobs.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
@@ -49,6 +50,12 @@ export class JobsController {
     };
   }
 
+  // Public list is a read-only browsing endpoint — the global 50 req/60s
+  // default is too tight once the FE prefetches adjacent pages (each user
+  // click triggers a current-page fetch + a next-page prefetch, so 25
+  // rapid clicks hit the cap). Raised to 300/min, matching the kind of
+  // limits public job boards use for anonymous list traffic.
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @Public()
   @ResponseMessage('Lấy danh sách công việc thành công')
   @Get()
@@ -62,6 +69,7 @@ export class JobsController {
     return this.jobsService.findAll(+currentPage, +limit, qs, user, true);
   }
 
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @ResponseMessage('Lấy danh sách công việc thành công')
   @Post('by-admin')
   findAllByAdmin(
