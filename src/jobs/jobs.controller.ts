@@ -14,6 +14,13 @@ import { ApiBody } from '@nestjs/swagger';
 import { JobsService } from './jobs.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
+import {
+  JOB_CATEGORY_VALUES,
+  JOB_LEVELS,
+  JOB_TYPES,
+  SPECIALIZATIONS_BY_CATEGORY,
+  WORK_MODES,
+} from './jobs.constants';
 import { Public, ResponseMessage, User } from 'src/decorators/customize';
 import type { IUser } from 'src/users/users.interface';
 import type { Request } from 'express';
@@ -27,6 +34,19 @@ export class JobsController {
   @Post()
   create(@Body() createJobDto: CreateJobDto, @User() user: IUser) {
     return this.jobsService.create(createJobDto, user);
+  }
+
+  @Public()
+  @ResponseMessage('Lấy taxonomy ngành nghề thành công')
+  @Get('taxonomy')
+  getTaxonomy() {
+    return {
+      categories: JOB_CATEGORY_VALUES,
+      specializationsByCategory: SPECIALIZATIONS_BY_CATEGORY,
+      levels: JOB_LEVELS,
+      jobTypes: JOB_TYPES,
+      workModes: WORK_MODES,
+    };
   }
 
   @Public()
