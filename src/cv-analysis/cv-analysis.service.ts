@@ -23,6 +23,9 @@ import {
 } from './cv-scoring.service';
 import { CvEmbeddingService } from './cv-embedding.service';
 
+/** Max number of active jobs we score in-memory per recommend request. */
+const CANDIDATE_LIMIT = 500;
+
 @Injectable()
 export class CvAnalysisService {
   private readonly logger = new Logger(CvAnalysisService.name);
@@ -192,16 +195,19 @@ export class CvAnalysisService {
 
     const extracted = analysis.extractedData as ExtractedCvData;
 
-    // Fetch all active, non-expired jobs and let the in-memory scoring engine
+    // Fetch active, non-expired jobs and let the in-memory scoring engine
     // (which uses the SKILL_ALIASES table) decide. A Mongo-side $in pre-filter
     // would miss case/spelling variants like "nodejs" vs "Node.js", so for
-    // current scale we score everything in memory. Switch to $vectorSearch
-    // when the job collection grows beyond ~5k documents.
+    // current scale we score in memory but cap the candidate pool to bound
+    // RAM/CPU per request — newest-updated jobs win the slot. Switch to
+    // $vectorSearch when the job collection grows beyond ~5k documents.
     const candidateJobs = await this.jobModel
       .find({
         isActive: true,
         endDate: { $gte: new Date() },
       })
+      .sort({ updatedAt: -1 })
+      .limit(CANDIDATE_LIMIT)
       .lean();
 
     if (candidateJobs.length === 0) {
