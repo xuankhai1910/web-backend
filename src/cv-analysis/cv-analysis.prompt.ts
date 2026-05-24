@@ -86,7 +86,7 @@ GENERAL RULE: Extract ONLY what is explicitly written in the CV. Do not invent, 
 
 - "desiredCategory": **Map the candidate to ONE IT job family.** Use the candidate's desiredJobTitle, recent experience and project tech-stacks. **Pick exactly one value from this closed list:**
 ${CATEGORY_TAXONOMY_BLOCK}
-  Empty string only when the CV is clearly not IT-related.
+  OMIT this field entirely (do not include the key) when the CV is clearly not IT-related.
 
 - "desiredSpecialization": **Pick the specific role within the chosen desiredCategory.** Must be one of the specializations listed for that category above — never a value from a different category. Examples:
     * desiredJobTitle "Senior Backend Engineer" + Node.js/Spring/.NET projects → category "Software Engineering", specialization "Backend Developer".
@@ -94,7 +94,7 @@ ${CATEGORY_TAXONOMY_BLOCK}
     * desiredJobTitle "Data Engineer" + Spark/Airflow projects → category "Data Science", specialization "Data Engineer".
     * desiredJobTitle "DevOps" + AWS/K8s/Terraform → category "IT Infrastructure and Operations", specialization "DevOps Engineer".
     * desiredJobTitle "AI Engineer" + PyTorch/LLM projects → category "Artificial Intelligence", specialization "AI Engineer".
-  Empty string only if no specialization clearly fits.
+  OMIT this field entirely (do not include the key) if no specialization clearly fits.
 
 Output strict JSON matching the response schema. No commentary, no markdown.`;
 
@@ -111,14 +111,16 @@ export const CV_EXTRACTION_RESPONSE_SCHEMA = {
     },
     yearsOfExperience: { type: Type.NUMBER },
     desiredJobTitle: { type: Type.STRING },
+    // Gemini rejects empty strings in enums, so we omit them here AND drop these
+    // two fields from `required` — the model can leave them out for non-IT CVs,
+    // and the service-side parser coerces missing values to '' downstream.
     desiredCategory: {
       type: Type.STRING,
-      // Add empty string so "non-IT CV" is representable.
-      enum: ['', ...JOB_CATEGORY_VALUES],
+      enum: [...JOB_CATEGORY_VALUES],
     },
     desiredSpecialization: {
       type: Type.STRING,
-      enum: ['', ...SPECIALIZATION_VALUES],
+      enum: [...SPECIALIZATION_VALUES],
     },
     education: { type: Type.STRING },
     preferredLocations: {
@@ -132,8 +134,6 @@ export const CV_EXTRACTION_RESPONSE_SCHEMA = {
     'level',
     'yearsOfExperience',
     'desiredJobTitle',
-    'desiredCategory',
-    'desiredSpecialization',
     'education',
     'summary',
   ],
