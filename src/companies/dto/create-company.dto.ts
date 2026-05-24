@@ -1,9 +1,15 @@
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsPhoneNumber,
-  isPhoneNumber,
+  IsString,
+  ValidateIf,
 } from 'class-validator';
+
+const emptyToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 export class CreateCompanyDto {
   @IsNotEmpty({ message: 'Tên không được để trống' })
@@ -12,22 +18,21 @@ export class CreateCompanyDto {
   @IsNotEmpty({ message: 'Địa chỉ không được để trống' })
   address: string;
 
-  @IsNotEmpty({ message: 'Mô tả không được để trống' })
-  description: string;
+  @IsOptional()
+  @IsString({ message: 'Mô tả phải là chuỗi' })
+  description?: string;
 
-  @IsNotEmpty({ message: 'Logo không được để trống' })
-  logo: string;
+  @IsOptional()
+  @IsString({ message: 'Logo phải là chuỗi' })
+  logo?: string;
 
-  @IsNotEmpty({
-    message: 'Quý công ty vui lòng cung cấp email để ứng viên có thể liên hệ',
-  })
+  @Transform(emptyToUndefined)
+  @ValidateIf((_, value) => value !== undefined && value !== null)
   @IsEmail({}, { message: 'Email không hợp lệ' })
-  email: string;
+  email?: string;
 
-  @IsNotEmpty({
-    message:
-      'Quý công ty vui lòng cung cấp số điện thoại để ứng viên có thể liên hệ',
-  })
+  @Transform(emptyToUndefined)
+  @ValidateIf((_, value) => value !== undefined && value !== null)
   @IsPhoneNumber('VN', { message: 'Số điện thoại không hợp lệ' })
-  phone: string;
+  phone?: string;
 }

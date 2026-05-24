@@ -16,6 +16,7 @@ import {
   IsString,
   Min,
   Validate,
+  ValidateIf,
   ValidateNested,
   ValidatorConstraint,
   type ValidationArguments,
@@ -31,6 +32,9 @@ import {
   isSpecializationOfCategory,
 } from '../jobs.constants';
 
+const emptyToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
 class Company {
   @IsNotEmpty({ message: 'ID công ty không được để trống' })
   _id: mongoose.Schema.Types.ObjectId;
@@ -38,17 +42,20 @@ class Company {
   @IsNotEmpty({ message: 'Tên công ty không được để trống' })
   name: string;
 
+  @Transform(emptyToUndefined)
   @IsOptional()
   @IsString({ message: 'Logo công ty phải là chuỗi' })
   logo?: string;
 
-  @IsOptional()
+  @Transform(emptyToUndefined)
+  @ValidateIf((_, value) => value !== undefined && value !== null)
   @IsEmail({}, { message: 'Email công ty không hợp lệ' })
-  email: string;
+  email?: string;
 
-  @IsOptional()
+  @Transform(emptyToUndefined)
+  @ValidateIf((_, value) => value !== undefined && value !== null)
   @IsPhoneNumber('VN', { message: 'Số điện thoại công ty không hợp lệ' })
-  phone: string;
+  phone?: string;
 }
 
 class SalaryDto {

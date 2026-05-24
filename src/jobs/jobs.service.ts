@@ -318,18 +318,18 @@ export class JobsService {
     // ~100–300ms of pure latency; parallelising roughly halves the wall
     // clock on deep-page hits (page 50+ was 1.5–3s before this change).
     //
-    // List projection: strip the 768-dim `embedding` (~6KB/job) plus the
-    // big array fields the cards never read. Description is kept because
-    // the hover tooltip shows an excerpt. `.lean()` skips Mongoose
-    // document hydration — list rows are read-only, no virtuals on the
-    // Job schema, so the docs go straight to JSON.
+    // List projection: strip the 768-dim `embedding` (~6KB/job) and the
+    // re-embed hash. The 3 JD arrays (requirements/responsibilities/benefits)
+    // are kept because the hover tooltip on cards renders short previews
+    // from them now that `description` may be empty (admins fill it only
+    // for custom notes like age/gender). `.lean()` skips Mongoose document
+    // hydration — list rows are read-only, no virtuals on the Job schema,
+    // so the docs go straight to JSON.
     const [totalItems, result] = await Promise.all([
       this.cachedCount(filter),
       this.jobModel
         .find(filter)
-        .select(
-          '-embedding -embeddingHash -requirements -responsibilities -benefits',
-        )
+        .select('-embedding -embeddingHash')
         .skip(offset)
         .limit(defaultLimit)
         .sort(sort as Record<string, 1 | -1>)
@@ -352,7 +352,9 @@ export class JobsService {
 
   async findOne(id: string) {
     // No per-request deactivate: covered by the hourly cron.
-    return this.jobModel.findById({ _id: id });
+    // Strip the 768-dim embedding (~6KB) — clients (job detail page, admin
+    // edit modal) never read it; only similarity/recommendation code paths do.
+    return this.jobModel.findById({ _id: id }).select('-embedding -embeddingHash');
   }
 
   async update(id: string, updateJobDto: UpdateJobDto, user: IUser) {
