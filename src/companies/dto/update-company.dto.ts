@@ -1,25 +1,9 @@
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsOptional,
-  IsPhoneNumber,
-} from 'class-validator';
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateCompanyDto } from './create-company.dto';
 
-export class UpdateCompanyDto {
-  @IsNotEmpty({ message: 'Tên không được để trống' })
-  name: string;
-
-  @IsNotEmpty({ message: 'Địa chỉ không được để trống' })
-  address: string;
-
-  @IsNotEmpty({ message: 'Mô tả không được để trống' })
-  description: string;
-
-  @IsOptional()
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  email: string;
-
-  @IsOptional()
-  @IsPhoneNumber('VN', { message: 'Số điện thoại không hợp lệ' })
-  phone: string;
-}
+/**
+ * PATCH /companies/:id — every field is optional so callers can update
+ * one field at a time. Validation rules (email format, VN phone) are
+ * inherited from `CreateCompanyDto` via `PartialType`.
+ */
+export class UpdateCompanyDto extends PartialType(CreateCompanyDto) {}

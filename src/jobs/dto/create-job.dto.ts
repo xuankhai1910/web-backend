@@ -38,8 +38,9 @@ class Company {
   @IsNotEmpty({ message: 'Tên công ty không được để trống' })
   name: string;
 
-  @IsNotEmpty({ message: 'Logo công ty không được để trống' })
-  logo: string;
+  @IsOptional()
+  @IsString({ message: 'Logo công ty phải là chuỗi' })
+  logo?: string;
 
   @IsOptional()
   @IsEmail({}, { message: 'Email công ty không hợp lệ' })
