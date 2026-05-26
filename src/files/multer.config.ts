@@ -41,7 +41,10 @@ export class MulterConfigService implements MulterOptionsFactory {
     return {
       storage: diskStorage({
         destination: (req, file, cb) => {
-          const folder = req?.headers?.folder_type ?? 'default';
+          // FE sends `x-folder-type` (hyphenated) — underscored header names
+          // are stripped by nginx by default, causing silent fallback to
+          // 'default' and producing 404s when the URL expects a subfolder.
+          const folder = req?.headers?.['x-folder-type'] ?? 'default';
           this.ensureExists(`public/images/${folder}`);
           cb(null, join(this.getRootPath(), `public/images/${folder}`));
         },
