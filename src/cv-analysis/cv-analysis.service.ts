@@ -13,6 +13,10 @@ import { CvAnalysis, CvAnalysisDocument } from './schemas/cv-analysis.schema';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
 import { Resume, ResumeDocument } from 'src/resumes/schemas/resume.schema';
+import {
+  UploadedFile,
+  UploadedFileDocument,
+} from 'src/files/schemas/uploaded-file.schema';
 import type { IUser } from 'src/users/users.interface';
 import { CvExtractionService } from './cv-extraction.service';
 import {
@@ -40,6 +44,8 @@ export class CvAnalysisService {
     private userModel: SoftDeleteModel<UserDocument>,
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
+    @InjectModel(UploadedFile.name)
+    private uploadedFileModel: SoftDeleteModel<UploadedFileDocument>,
     private extraction: CvExtractionService,
     private scoring: CvScoringService,
     private embedding: CvEmbeddingService,
@@ -96,8 +102,31 @@ export class CvAnalysisService {
   /**
    * Verify the requesting user is allowed to analyze a CV at this URL.
    * If a Resume document already references this URL, it must belong to the
-   * user. Otherwise the file is treated as a fresh upload (allowed).
+   * user. Tracked fresh uploads are also checked against uploaded_files.
    */
+  private getResumeUploadFilename(url: string): string | null {
+    const normalized = url.replace(/\\/g, '/');
+    if (normalized.startsWith('images/resume/')) {
+      const filename = normalized.slice('images/resume/'.length);
+      if (!filename || filename.includes('/')) {
+        throw new BadRequestException('URL CV khong hop le');
+      }
+      return filename;
+    }
+    if (!normalized.includes('/')) return normalized;
+    return null;
+  }
+
+  private assertOwnProfileArtifact(url: string, user: IUser): void {
+    const normalized = url.replace(/\\/g, '/');
+    if (
+      normalized.startsWith('images/pdf/profile-') &&
+      !normalized.startsWith(`images/pdf/profile-${user._id}-`)
+    ) {
+      throw new ForbiddenException('Ban khong co quyen phan tich CV nay');
+    }
+  }
+
   private async assertCvOwnership(url: string, user: IUser): Promise<void> {
     const owner = await this.resumeModel
       .findOne({ url })
@@ -113,8 +142,28 @@ export class CvAnalysisService {
   /**
    * Analyze a CV. Caches by (userId, fileHash); use `force=true` to bypass.
    */
+  private async assertTrackedFileOwnership(
+    url: string,
+    user: IUser,
+  ): Promise<void> {
+    this.assertOwnProfileArtifact(url, user);
+
+    const filename = this.getResumeUploadFilename(url);
+    if (!filename) return;
+
+    const uploaded = await this.uploadedFileModel
+      .findOne({ folder: 'resume', filename, status: 'uploaded' })
+      .select('ownerId')
+      .lean();
+
+    if (uploaded && String(uploaded.ownerId) !== String(user._id)) {
+      throw new ForbiddenException('Ban khong co quyen phan tich CV nay');
+    }
+  }
+
   async analyzeCv(url: string, user: IUser, force = false) {
     await this.assertCvOwnership(url, user);
+    await this.assertTrackedFileOwnership(url, user);
 
     const filePath = this.resolveFilePath(url);
     if (!fs.existsSync(filePath)) {

@@ -2,7 +2,11 @@ import { Controller, Post, Body, Get, Delete, Param } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CvAnalysisService } from './cv-analysis.service';
 import { AnalyzeCvDto, RecommendJobsDto } from './dto/cv-analysis.dto';
-import { ResponseMessage, User } from 'src/decorators/customize';
+import {
+  ResponseMessage,
+  SkipCheckPermission,
+  User,
+} from 'src/decorators/customize';
 import type { IUser } from 'src/users/users.interface';
 
 @Controller('cv-analysis')
@@ -12,6 +16,7 @@ export class CvAnalysisController {
   @ResponseMessage('Phân tích CV thành công')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('analyze')
+  @SkipCheckPermission()
   analyzeCv(@Body() analyzeCvDto: AnalyzeCvDto, @User() user: IUser) {
     return this.cvAnalysisService.analyzeCv(
       analyzeCvDto.url,
@@ -22,6 +27,7 @@ export class CvAnalysisController {
 
   @ResponseMessage('Gợi ý việc làm thành công')
   @Post('recommend-jobs')
+  @SkipCheckPermission()
   recommendJobs(@Body() dto: RecommendJobsDto = {}, @User() user: IUser) {
     return this.cvAnalysisService.getRecommendedJobs(
       user,
@@ -32,12 +38,14 @@ export class CvAnalysisController {
 
   @ResponseMessage('Lấy danh sách phân tích CV thành công')
   @Get('my-analyses')
+  @SkipCheckPermission()
   getMyAnalyses(@User() user: IUser) {
     return this.cvAnalysisService.findByUser(user);
   }
 
   @ResponseMessage('Xoá phân tích CV thành công')
   @Delete(':id')
+  @SkipCheckPermission()
   remove(@Param('id') id: string, @User() user: IUser) {
     return this.cvAnalysisService.remove(id, user);
   }

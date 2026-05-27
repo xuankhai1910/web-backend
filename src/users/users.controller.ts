@@ -52,6 +52,7 @@ export class UsersController {
 
   @ResponseMessage('Cập nhật CV gợi ý việc làm thành công')
   @Post('recommendation-cv')
+  @SkipCheckPermission()
   setRecommendationCv(
     @Body() dto: SetRecommendationCvDto,
     @User() user: IUser,
@@ -61,12 +62,14 @@ export class UsersController {
 
   @ResponseMessage('Lấy CV gợi ý việc làm thành công')
   @Get('recommendation-cv')
+  @SkipCheckPermission()
   getRecommendationCv(@User() user: IUser) {
     return this.usersService.getRecommendationCv(user);
   }
 
   @ResponseMessage('Xoá CV gợi ý việc làm thành công')
   @Delete('recommendation-cv')
+  @SkipCheckPermission()
   removeRecommendationCv(@User() user: IUser) {
     return this.usersService.removeRecommendationCv(user);
   }

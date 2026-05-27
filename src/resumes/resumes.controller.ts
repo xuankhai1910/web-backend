@@ -12,7 +12,11 @@ import {
 import { ResumesService } from './resumes.service';
 import { CreateResumeDto, CreateUserCvDto } from './dto/create-resume.dto';
 import { UpdateResumeDto } from './dto/update-resume.dto';
-import { ResponseMessage, User } from 'src/decorators/customize';
+import {
+  ResponseMessage,
+  SkipCheckPermission,
+  User,
+} from 'src/decorators/customize';
 import type { IUser } from 'src/users/users.interface';
 
 @Controller('resumes')
@@ -21,12 +25,14 @@ export class ResumesController {
 
   @ResponseMessage('Resume created successfully')
   @Post()
+  @SkipCheckPermission()
   create(@Body() createUserCvDto: CreateUserCvDto, @User() user: IUser) {
     return this.resumesService.create(createUserCvDto, user);
   }
 
   @ResponseMessage('Lấy danh sách resume của user thành công')
   @Post('by-user')
+  @SkipCheckPermission()
   getResumesByUser(@User() user: IUser) {
     return this.resumesService.findByUsers(user);
   }

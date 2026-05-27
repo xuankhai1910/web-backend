@@ -1,24 +1,26 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
-  UseInterceptors,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
   UploadedFile,
-  ParseFilePipeBuilder,
-  HttpStatus,
-  UseFilters,
+  UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService } from './files.service';
 import { CreateFileDto } from './dto/create-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { Public, ResponseMessage } from 'src/decorators/customize';
-import { MimeTypeValidator } from './validators/file-type.validator';
-import { HttpExceptionFilter } from 'src/core/http-exception.filter';
+import {
+  ResponseMessage,
+  SkipCheckPermission,
+  User,
+} from 'src/decorators/customize';
+import type { IUser } from 'src/users/users.interface';
 
 @Controller('files')
 export class FilesController {
@@ -26,29 +28,15 @@ export class FilesController {
 
   @ResponseMessage('File uploaded successfully')
   @Post('upload')
-  @UseInterceptors(FileInterceptor('fileUpload')) //tên field sử dụng trong form-data
-  @UseFilters(new HttpExceptionFilter())
+  @SkipCheckPermission()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('fileUpload'))
   uploadFile(
-    @UploadedFile(
-      new ParseFilePipeBuilder()
-        .addValidator(
-          new MimeTypeValidator({
-            fileType:
-              /(image\/(jpeg|png|gif)|text\/plain|application\/(pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))/i,
-          }),
-        )
-        .addMaxSizeValidator({
-          maxSize: 1024 * 1024 * 5, //5MB
-        })
-        .build({
-          errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-        }),
-    )
-    file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File,
+    @Headers('x-folder-type') folderType: string | undefined,
+    @User() user: IUser,
   ) {
-    return {
-      fileName: file.filename,
-    };
+    return this.filesService.storeUpload(file, folderType, user);
   }
 
   @Post()

@@ -16,6 +16,10 @@ import mongoose from 'mongoose';
 import aqp from 'api-query-params';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { UserProfilesService } from 'src/user-profiles/user-profiles.service';
+import {
+  UploadedFile,
+  UploadedFileDocument,
+} from 'src/files/schemas/uploaded-file.schema';
 
 const ALLOWED_STATUSES = [
   'PENDING',
@@ -32,6 +36,8 @@ export class ResumesService {
   constructor(
     @InjectModel(Resume.name)
     private resumeModel: SoftDeleteModel<ResumeDocument>,
+    @InjectModel(UploadedFile.name)
+    private uploadedFileModel: SoftDeleteModel<UploadedFileDocument>,
     private readonly notificationsService: NotificationsService,
     @Inject(forwardRef(() => UserProfilesService))
     private readonly userProfilesService: UserProfilesService,
@@ -72,6 +78,48 @@ export class ResumesService {
 
   // ─── CRUD ─────────────────────────────────────────────────
 
+  private getResumeUploadFilename(url: string): string | null {
+    const normalized = url.replace(/\\/g, '/');
+    if (normalized.startsWith('images/resume/')) {
+      const filename = normalized.slice('images/resume/'.length);
+      if (!filename || filename.includes('/')) {
+        throw new BadRequestException('URL CV khong hop le');
+      }
+      return filename;
+    }
+    if (!normalized.includes('/')) return normalized;
+    return null;
+  }
+
+  private assertOwnProfileArtifact(url: string, user: IUser): void {
+    const normalized = url.replace(/\\/g, '/');
+    if (
+      normalized.startsWith('images/pdf/profile-') &&
+      !normalized.startsWith(`images/pdf/profile-${user._id}-`)
+    ) {
+      throw new ForbiddenException('Ban khong co quyen su dung URL CV nay');
+    }
+  }
+
+  private async assertLocalCvOwnership(
+    url: string,
+    user: IUser,
+  ): Promise<void> {
+    this.assertOwnProfileArtifact(url, user);
+
+    const filename = this.getResumeUploadFilename(url);
+    if (!filename) return;
+
+    const uploaded = await this.uploadedFileModel
+      .findOne({ folder: 'resume', filename, status: 'uploaded' })
+      .select('ownerId')
+      .lean();
+
+    if (uploaded && String(uploaded.ownerId) !== String(user._id)) {
+      throw new ForbiddenException('Ban khong co quyen su dung URL CV nay');
+    }
+  }
+
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
     const { companyId, jobId } = createUserCvDto;
     let { url } = createUserCvDto;
@@ -93,6 +141,8 @@ export class ResumesService {
     if (conflict) {
       throw new ForbiddenException('Bạn không có quyền sử dụng URL CV này');
     }
+
+    await this.assertLocalCvOwnership(url, user);
 
     const newCV = await this.resumeModel.create({
       url,

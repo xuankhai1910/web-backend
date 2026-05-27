@@ -14,43 +14,18 @@ export class MulterConfigService implements MulterOptionsFactory {
   };
 
   ensureExists(targetDirectory: string) {
-    fs.mkdir(targetDirectory, { recursive: true }, (error) => {
-      if (!error) {
-        console.log('Directory successfully created, or it already exists.');
-        return;
-      }
-      switch (error.code) {
-        case 'EEXIST':
-          // Error:
-          // Requested location already exists, but it's not a directory.
-          break;
-        case 'ENOTDIR':
-          // Error:
-          // The parent hierarchy contains a file with the same name as the dir
-          // you're trying to create.
-          break;
-        default:
-          // Some other error like permission denied.
-          console.error(error);
-          break;
-      }
-    });
+    fs.mkdirSync(targetDirectory, { recursive: true });
   }
 
   createMulterOptions(): MulterModuleOptions {
     return {
       storage: diskStorage({
         destination: (req, file, cb) => {
-          // FE sends `x-folder-type` (hyphenated) — underscored header names
-          // are stripped by nginx by default, causing silent fallback to
-          // 'default' and producing 404s when the URL expects a subfolder.
-          const folder = req?.headers?.['x-folder-type'] ?? 'default';
-          this.ensureExists(`public/images/${folder}`);
-          cb(null, join(this.getRootPath(), `public/images/${folder}`));
+          const tmpDir = join(this.getRootPath(), 'upload/tmp');
+          this.ensureExists(tmpDir);
+          cb(null, tmpDir);
         },
         filename: (req, file, cb) => {
-          // Multer decode originalname theo latin1 -> re-encode sang utf8
-          // để các ký tự tiếng Việt không bị garble
           const originalName = Buffer.from(
             file.originalname,
             'latin1',
@@ -58,19 +33,18 @@ export class MulterConfigService implements MulterOptionsFactory {
 
           const extName = path.extname(originalName).toLowerCase();
           const baseName = path.basename(originalName, extName);
-
-          // Bỏ dấu tiếng Việt, lower case, thay mọi ký tự không hợp lệ bằng "-"
           const safeName = baseName
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .replace(/đ/g, 'd')
             .replace(/Đ/g, 'd')
             .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-') // mọi thứ không phải a-z/0-9 -> "-"
-            .replace(/^-+|-+$/g, '') // bỏ "-" ở đầu/cuối
-            .slice(0, 80); // giới hạn độ dài
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 80);
 
-          const finalName = `${safeName || 'file'}-${Date.now()}${extName}`;
+          const randomSuffix = Math.random().toString(36).slice(2, 10);
+          const finalName = `tmp-${Date.now()}-${randomSuffix}-${safeName || 'file'}${extName}`;
           cb(null, finalName);
         },
       }),
@@ -78,6 +52,7 @@ export class MulterConfigService implements MulterOptionsFactory {
         const allowedFileTypes = [
           'jpg',
           'jpeg',
+          'jfif',
           'png',
           'gif',
           'pdf',
@@ -99,7 +74,7 @@ export class MulterConfigService implements MulterOptionsFactory {
         } else cb(null, true);
       },
       limits: {
-        fileSize: 1024 * 1024 * 5, // 5MB
+        fileSize: 1024 * 1024 * 5,
       },
     };
   }

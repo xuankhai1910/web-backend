@@ -10,6 +10,10 @@ import { CvAnalysis, CvAnalysisSchema } from './schemas/cv-analysis.schema';
 import { Job, JobSchema } from 'src/jobs/schemas/job.schema';
 import { User, UserSchema } from 'src/users/schemas/user.schema';
 import { Resume, ResumeSchema } from 'src/resumes/schemas/resume.schema';
+import {
+  UploadedFile,
+  UploadedFileSchema,
+} from 'src/files/schemas/uploaded-file.schema';
 
 @Module({
   imports: [
@@ -18,6 +22,7 @@ import { Resume, ResumeSchema } from 'src/resumes/schemas/resume.schema';
       { name: Job.name, schema: JobSchema },
       { name: User.name, schema: UserSchema },
       { name: Resume.name, schema: ResumeSchema },
+      { name: UploadedFile.name, schema: UploadedFileSchema },
     ]),
   ],
   controllers: [CvAnalysisController],
