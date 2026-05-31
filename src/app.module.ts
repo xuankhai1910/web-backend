@@ -26,6 +26,7 @@ import { UserProfilesModule } from './user-profiles/user-profiles.module';
 import { SavedJobsModule } from './saved-jobs/saved-jobs.module';
 import { ToolsModule } from './tools/tools.module';
 import { JobRecommendationsModule } from './job-recommendations/job-recommendations.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { JobRecommendationsModule } from './job-recommendations/job-recommendati
     SavedJobsModule,
     ToolsModule,
     JobRecommendationsModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [

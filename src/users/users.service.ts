@@ -77,6 +77,14 @@ export class UsersService {
     delete filter.pageSize;
     let offset = (+currentPage - 1) * +limit;
     let defaultLimit = +limit ? +limit : 10;
+    const stableSort =
+      sort && Object.keys(sort).length > 0 ? { ...(sort as any) } : {};
+    if (!stableSort._id) {
+      const firstDirection =
+        Object.values(stableSort).find((value) => value === 1 || value === -1) ??
+        -1;
+      stableSort._id = firstDirection;
+    }
 
     const collation = { locale: 'vi', strength: 1 };
 
@@ -89,7 +97,7 @@ export class UsersService {
       .collation(collation)
       .skip(offset)
       .limit(defaultLimit)
-      .sort(sort as any)
+      .sort(stableSort)
       .select('-password')
       .populate(population)
       .exec();

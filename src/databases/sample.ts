@@ -518,4 +518,20 @@ export const INIT_PERMISSIONS = [
     updatedAt: '2023-06-15T09:13:52.798Z',
     __v: 0,
   },
+  {
+    _id: '648ad650dafdb9754f40b900',
+    name: 'Xem thống kê tổng quan (Admin)',
+    apiPath: '/api/v1/stats/admin/overview',
+    method: 'GET',
+    module: 'STATS',
+    createdBy: {
+      _id: '647b5108a8a243e8191855b5',
+      email: 'xuankhai19102004@gmail.com',
+    },
+    isDeleted: false,
+    deletedAt: null,
+    createdAt: '2023-06-15T09:13:52.798Z',
+    updatedAt: '2023-06-15T09:13:52.798Z',
+    __v: 0,
+  },
 ];
