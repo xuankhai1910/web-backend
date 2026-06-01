@@ -54,6 +54,7 @@ export class FilesService {
     let folder: UploadFolder | undefined;
     let fileHash: string | undefined;
     let createdRecordId: unknown;
+    let finalPath: string | undefined;
 
     try {
       folder = this.normalizeFolder(folderHeader);
@@ -79,7 +80,7 @@ export class FilesService {
         fileHash,
         targetDir,
       );
-      const finalPath = path.resolve(targetDir, finalName);
+      finalPath = path.resolve(targetDir, finalName);
 
       const record = await this.uploadedFileModel.create({
         ownerId: user._id,
@@ -95,7 +96,7 @@ export class FilesService {
       });
       createdRecordId = record._id;
 
-      await fs.promises.rename(file.path, finalPath);
+      await this.moveUploadFile(file.path, finalPath);
 
       return {
         fileName: finalName,
@@ -107,6 +108,8 @@ export class FilesService {
       if (createdRecordId) {
         await this.uploadedFileModel.deleteOne({ _id: createdRecordId });
       }
+
+      await this.safeUnlink(finalPath);
 
       if (this.isDuplicateKeyError(error) && folder && fileHash) {
         const duplicate = await this.findDuplicate(user, folder, fileHash);
@@ -244,6 +247,19 @@ export class FilesService {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
       }
+    }
+  }
+
+  private async moveUploadFile(sourcePath: string, targetPath: string) {
+    try {
+      await fs.promises.rename(sourcePath, targetPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') {
+        throw error;
+      }
+
+      await fs.promises.copyFile(sourcePath, targetPath);
+      await this.safeUnlink(sourcePath);
     }
   }
 
