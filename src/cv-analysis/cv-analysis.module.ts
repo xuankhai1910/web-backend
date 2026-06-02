@@ -7,6 +7,10 @@ import { CvScoringService } from './cv-scoring.service';
 import { CvEmbeddingService } from './cv-embedding.service';
 import { GeminiKeyRotator } from './gemini-key-rotator.service';
 import { CvAnalysis, CvAnalysisSchema } from './schemas/cv-analysis.schema';
+import {
+  AnalysisBatchUsage,
+  AnalysisBatchUsageSchema,
+} from './schemas/analysis-batch-usage.schema';
 import { Job, JobSchema } from 'src/jobs/schemas/job.schema';
 import { User, UserSchema } from 'src/users/schemas/user.schema';
 import { Resume, ResumeSchema } from 'src/resumes/schemas/resume.schema';
@@ -19,6 +23,7 @@ import {
   imports: [
     MongooseModule.forFeature([
       { name: CvAnalysis.name, schema: CvAnalysisSchema },
+      { name: AnalysisBatchUsage.name, schema: AnalysisBatchUsageSchema },
       { name: Job.name, schema: JobSchema },
       { name: User.name, schema: UserSchema },
       { name: Resume.name, schema: ResumeSchema },

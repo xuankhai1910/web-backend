@@ -3,13 +3,25 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import mongoose, { FilterQuery, Model } from 'mongoose';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { CvAnalysis, CvAnalysisDocument } from './schemas/cv-analysis.schema';
+import {
+  AnalysisBatchUsage,
+  AnalysisBatchUsageDocument,
+} from './schemas/analysis-batch-usage.schema';
+import {
+  MONTHLY_BATCH_LIMIT,
+  MAX_BATCH_RESUMES,
+  MIN_BATCH_RESUMES,
+  PER_KEY_BATCH_RESUMES,
+} from './cv-analysis.constants';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
 import { Resume, ResumeDocument } from 'src/resumes/schemas/resume.schema';
@@ -38,6 +50,8 @@ export class CvAnalysisService {
   constructor(
     @InjectModel(CvAnalysis.name)
     private cvAnalysisModel: SoftDeleteModel<CvAnalysisDocument>,
+    @InjectModel(AnalysisBatchUsage.name)
+    private batchUsageModel: Model<AnalysisBatchUsageDocument>,
     @InjectModel(Job.name)
     private jobModel: SoftDeleteModel<JobDocument>,
     @InjectModel(User.name)
@@ -202,16 +216,50 @@ export class CvAnalysisService {
       }
     }
 
+    return this.runExtractionAndCache(filePath, url, fileHash, user._id, user);
+  }
+
+  /**
+   * Extract structured data + embedding from a CV file and upsert the result
+   * into the analysis cache, keyed by (ownerUserId, fileHash).
+   *
+   * `ownerUserId` is the user the CV BELONGS to (so an HR-triggered analysis of
+   * an applicant's CV is cached under — and shared with — the candidate's own
+   * analysis). `triggeredBy` is who initiated the call (recorded in createdBy on
+   * first insert). Upserting overwrites a stale cache (keyword-only / missing
+   * embedding) instead of accumulating orphan documents per (userId, fileHash).
+   */
+  private async runExtractionAndCache(
+    filePath: string,
+    url: string,
+    fileHash: string,
+    ownerUserId: unknown,
+    triggeredBy: IUser,
+  ) {
+    const fileName = path.basename(filePath);
+    this.logger.log(
+      `[extract] file=${fileName} — Gemini available=${this.embedding.isAvailable()}, keys=${this.embedding.keyCount()}. Bắt đầu trích xuất...`,
+    );
     const { data, analyzedBy } = await this.extraction.extract(filePath);
+    this.logger.log(
+      `[extract] file=${fileName} → analyzedBy=${analyzedBy} ` +
+        `(ai = ĐÃ gọi Gemini; keyword = KHÔNG gọi Gemini, dùng fallback).`,
+    );
 
     // Generate semantic embedding (best-effort; empty array if API down).
     const cvText = this.embedding.buildCvText(data);
     const embedding = await this.embedding.embed(cvText);
+    this.logger.log(
+      `[embed] file=${fileName} → embDims=${embedding.length} ` +
+        `(0 = gọi embedding thất bại / chưa cấu hình key).`,
+    );
 
-    // Upsert: overwrite stale cache (keyword-only or missing embedding)
-    // so we don't accumulate orphan documents per (userId, fileHash).
+    const filter: FilterQuery<CvAnalysisDocument> = {
+      userId: ownerUserId as never,
+      fileHash,
+    };
     return this.cvAnalysisModel.findOneAndUpdate(
-      { userId: user._id, fileHash },
+      filter,
       {
         $set: {
           resumeUrl: url,
@@ -221,9 +269,9 @@ export class CvAnalysisService {
           analyzedAt: new Date(),
         },
         $setOnInsert: {
-          userId: user._id,
+          userId: ownerUserId as never,
           fileHash,
-          createdBy: { _id: user._id, email: user.email },
+          createdBy: { _id: triggeredBy._id, email: triggeredBy.email },
         },
       },
       { upsert: true, returnDocument: 'after' },
@@ -308,6 +356,250 @@ export class CvAnalysisService {
         };
       }),
     };
+  }
+
+  /**
+   * HR-facing: score an applicant's CV against the job they applied to.
+   * Scoped to the HR's own company (admins bypass). Reuses the candidate's
+   * cached analysis when it's AI-grade with an embedding; otherwise runs a
+   * fresh extraction (cached under the CV owner's userId so it's shared with
+   * the candidate). The match snapshot is persisted on the Resume so the HR
+   * list can rank/filter by it without recomputing.
+   */
+  async analyzeResumeMatchForHr(resumeId: string, hr: IUser) {
+    if (!mongoose.Types.ObjectId.isValid(resumeId)) {
+      throw new BadRequestException('ID hồ sơ không hợp lệ');
+    }
+
+    const resume = await this.resumeModel.findById(resumeId).lean();
+    if (!resume) {
+      throw new NotFoundException('Không tìm thấy hồ sơ');
+    }
+
+    // Access scope: admin sees all; HR only resumes of their own company.
+    if (
+      !this.isAdmin(hr) &&
+      String(resume.companyId) !== String(hr.company?._id)
+    ) {
+      throw new ForbiddenException('Bạn không có quyền phân tích hồ sơ này');
+    }
+
+    if (!resume.url) {
+      throw new BadRequestException('Hồ sơ chưa có file CV để phân tích');
+    }
+
+    const filePath = this.resolveFilePath(resume.url);
+    if (!fs.existsSync(filePath)) {
+      throw new BadRequestException(`Không tìm thấy file CV: ${resume.url}`);
+    }
+    const fileHash = await this.computeFileHash(filePath);
+
+    // Reuse the candidate's own high-quality analysis when available.
+    let analysis = await this.cvAnalysisModel.findOne({
+      userId: resume.userId,
+      fileHash,
+    });
+    const hasEmbedding =
+      ((analysis as any)?.embedding as number[] | undefined)?.length ?? 0;
+    const usable = !!analysis && analysis.analyzedBy === 'ai' && hasEmbedding > 0;
+    if (usable) {
+      this.logger.log(
+        `[HR-match] resume=${resumeId} → CACHE HIT: tái dùng phân tích AI đã có ` +
+          `(analysisId=${analysis!._id}, embDims=${hasEmbedding}). KHÔNG gọi Gemini lần này.`,
+      );
+    } else {
+      this.logger.log(
+        `[HR-match] resume=${resumeId} → CACHE MISS: ` +
+          `${analysis ? `cache cũ (analyzedBy=${analysis.analyzedBy}, embDims=${hasEmbedding})` : 'chưa có phân tích'}. ` +
+          `Sẽ trích xuất mới (xem log [extract]/[embed] bên dưới).`,
+      );
+      analysis = await this.runExtractionAndCache(
+        filePath,
+        resume.url,
+        fileHash,
+        resume.userId,
+        hr,
+      );
+    }
+
+    const job = await this.jobModel.findById(resume.jobId).lean();
+    if (!job) {
+      throw new NotFoundException('Không tìm thấy tin tuyển dụng của hồ sơ');
+    }
+
+    const extracted = analysis!.extractedData as ExtractedCvData;
+    const cvEmbedding = (analysis as any).embedding as number[] | undefined;
+    const jobEmbedding = (job as any).embedding as number[] | undefined;
+    let vectorScore = 0;
+    if (cvEmbedding?.length && jobEmbedding?.length) {
+      vectorScore = this.embedding.toScore(
+        this.embedding.cosineSimilarity(cvEmbedding, jobEmbedding),
+      );
+    }
+
+    const result = this.scoring.computeScore(
+      extracted,
+      job as ScorableJob,
+      vectorScore,
+    );
+
+    const match = {
+      score: result.score,
+      matchedSkills: result.matchedSkills,
+      breakdown: result.breakdown,
+      analyzedBy: analysis!.analyzedBy,
+      analyzedAt: new Date(),
+      jobId: resume.jobId,
+    };
+
+    // Persist the match snapshot so the HR list can sort/filter by it.
+    await this.resumeModel.updateOne({ _id: resumeId }, { $set: { match } });
+
+    this.logger.log(
+      `[HR-match] resume=${resumeId} → DONE: score=${result.score}, ` +
+        `analyzedBy=${match.analyzedBy}, vectorScore=${result.breakdown.vectorScore}.`,
+    );
+
+    return {
+      ...match,
+      extracted: {
+        skills: extracted.skills,
+        level: extracted.level,
+        yearsOfExperience: extracted.yearsOfExperience,
+        desiredJobTitle: extracted.desiredJobTitle,
+      },
+    };
+  }
+
+  // ─── HR BATCH MATCH ───────────────────────────────────────
+
+  /** Current calendar month as 'YYYY-MM' (UTC). */
+  private currentPeriod(): string {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /** The HR's company id, or throw if their account isn't linked to one. */
+  private requireCompanyId(hr: IUser): string {
+    const companyId = hr.company?._id;
+    if (!companyId) {
+      throw new BadRequestException(
+        'Tài khoản của bạn chưa gắn với công ty nào nên không thể phân tích hàng loạt.',
+      );
+    }
+    return String(companyId);
+  }
+
+  /**
+   * Per-run cap on CVs, auto-reduced when fewer Gemini keys are configured so a
+   * small key pool isn't asked to extract 100 fresh CVs in one go.
+   */
+  private computeBatchMax(): number {
+    const keys = this.embedding.keyCount();
+    if (keys <= 0) return MIN_BATCH_RESUMES;
+    return Math.min(
+      MAX_BATCH_RESUMES,
+      Math.max(MIN_BATCH_RESUMES, keys * PER_KEY_BATCH_RESUMES),
+    );
+  }
+
+  /** Remaining batch-run quota for the HR's company this month. */
+  async getBatchQuota(hr: IUser) {
+    const companyId = this.requireCompanyId(hr);
+    const period = this.currentPeriod();
+    const usageFilter: FilterQuery<AnalysisBatchUsageDocument> = {
+      companyId,
+      period,
+    };
+    const usage = await this.batchUsageModel.findOne(usageFilter).lean();
+    const used = usage?.count ?? 0;
+    return {
+      period,
+      used,
+      limit: MONTHLY_BATCH_LIMIT,
+      remaining: Math.max(0, MONTHLY_BATCH_LIMIT - used),
+    };
+  }
+
+  /**
+   * Start an "analyze all CVs" batch for the HR's company. Returns the list of
+   * resume ids (un-scored CVs of the company, capped) for the client to score
+   * one-by-one via `analyzeResumeMatchForHr`. Consumes one monthly batch run —
+   * but only when there is actually something to analyze.
+   */
+  async startMatchBatch(hr: IUser) {
+    const companyId = this.requireCompanyId(hr);
+    const period = this.currentPeriod();
+
+    const usageQuery: FilterQuery<AnalysisBatchUsageDocument> = {
+      companyId,
+      period,
+    };
+    const usage = await this.batchUsageModel.findOne(usageQuery);
+    const used = usage?.count ?? 0;
+    if (used >= MONTHLY_BATCH_LIMIT) {
+      throw new ForbiddenException(
+        `Công ty đã dùng hết ${MONTHLY_BATCH_LIMIT} lượt phân tích hàng loạt trong tháng này. Vui lòng thử lại vào tháng sau.`,
+      );
+    }
+
+    const effectiveMax = this.computeBatchMax();
+
+    // Only CVs that haven't been scored yet (no persisted match).
+    const candidateFilter: FilterQuery<ResumeDocument> = {
+      companyId,
+      'match.score': { $exists: false },
+    };
+    const candidates = await this.resumeModel
+      .find(candidateFilter)
+      .sort({ createdAt: -1 })
+      .limit(effectiveMax)
+      .select('_id')
+      .lean();
+
+    if (candidates.length === 0) {
+      // Nothing to do — don't burn a monthly run.
+      return {
+        period,
+        used,
+        limit: MONTHLY_BATCH_LIMIT,
+        remaining: Math.max(0, MONTHLY_BATCH_LIMIT - used),
+        effectiveMax,
+        total: 0,
+        resumeIds: [] as string[],
+        message: 'Không có CV nào cần phân tích (tất cả đã được chấm điểm).',
+      };
+    }
+
+    // Consume one batch run for the company this month.
+    const usageFilter: FilterQuery<AnalysisBatchUsageDocument> = {
+      companyId,
+      period,
+    };
+    const updated = await this.batchUsageModel.findOneAndUpdate(
+      usageFilter,
+      {
+        $inc: { count: 1 },
+        $setOnInsert: { companyId: companyId as never, period },
+      },
+      { upsert: true, new: true },
+    );
+    const newUsed = updated?.count ?? used + 1;
+
+    return {
+      period,
+      used: newUsed,
+      limit: MONTHLY_BATCH_LIMIT,
+      remaining: Math.max(0, MONTHLY_BATCH_LIMIT - newUsed),
+      effectiveMax,
+      total: candidates.length,
+      resumeIds: candidates.map((c) => String(c._id)),
+    };
+  }
+
+  private isAdmin(user: IUser): boolean {
+    const roleName = user?.role?.name?.toUpperCase();
+    return roleName === 'SUPER_ADMIN' || roleName === 'ADMIN';
   }
 
   async findByUser(user: IUser) {

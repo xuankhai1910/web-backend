@@ -36,6 +36,37 @@ export class CvAnalysisController {
     );
   }
 
+  // HR-facing: lấy hạn mức phân tích hàng loạt còn lại của công ty trong tháng.
+  // Quyền cần gán cho HR: (GET, /api/v1/cv-analysis/resumes/match-batch/quota).
+  @ResponseMessage('Lấy hạn mức phân tích hàng loạt thành công')
+  @Get('resumes/match-batch/quota')
+  getBatchQuota(@User() hr: IUser) {
+    return this.cvAnalysisService.getBatchQuota(hr);
+  }
+
+  // HR-facing: bắt đầu 1 lượt "phân tích tất cả" — trả danh sách resumeIds (CV
+  // chưa chấm, đã cap theo số key) để client chấm lần lượt, đồng thời trừ 1 lượt
+  // quota tháng của công ty.
+  // Quyền cần gán cho HR: (POST, /api/v1/cv-analysis/resumes/match-batch/start).
+  @ResponseMessage('Bắt đầu phân tích hàng loạt thành công')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('resumes/match-batch/start')
+  startMatchBatch(@User() hr: IUser) {
+    return this.cvAnalysisService.startMatchBatch(hr);
+  }
+
+  // HR-facing: chấm độ phù hợp của 1 hồ sơ ứng tuyển với tin tuyển dụng.
+  // KHÔNG @SkipCheckPermission — route đi qua permission check của JwtAuthGuard;
+  // quyền cần gán cho role HR: (POST, /api/v1/cv-analysis/resumes/:id/match).
+  // Throttle nới lên 60/phút để vòng lặp batch phía client không bị nghẽn (mỗi
+  // CV chưa cache vẫn bị giới hạn tự nhiên bởi độ trễ + rotator của Gemini).
+  @ResponseMessage('Phân tích độ phù hợp CV thành công')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Post('resumes/:id/match')
+  analyzeResumeMatch(@Param('id') id: string, @User() hr: IUser) {
+    return this.cvAnalysisService.analyzeResumeMatchForHr(id, hr);
+  }
+
   @ResponseMessage('Lấy danh sách phân tích CV thành công')
   @Get('my-analyses')
   @SkipCheckPermission()

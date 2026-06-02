@@ -225,7 +225,7 @@ export class UserProfilesService {
       user: {
         _id: foundUser._id,
         name: foundUser.name,
-        isJobSeeking: true,
+        isJobSeeking: foundUser.isJobSeeking ?? false,
       },
       profile: {
         _id: profile._id,

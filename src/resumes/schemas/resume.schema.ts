@@ -35,6 +35,27 @@ export class Resume {
 		};
 	}[];
 
+	// Kết quả chấm độ phù hợp giữa CV của ứng viên và tin tuyển dụng đã ứng
+	// tuyển. Được HR tính theo yêu cầu (nút "Phân tích") qua CvAnalysisService;
+	// lưu lại để danh sách có thể xếp hạng/lọc mà không phải tính lại.
+	@Prop({ type: Object })
+	match: {
+		score: number; // 0..1
+		matchedSkills: string[];
+		breakdown: {
+			skillScore: number;
+			titleScore: number;
+			desiredTitleScore: number;
+			specializationScore: number;
+			levelScore: number;
+			locationScore: number;
+			vectorScore: number;
+		};
+		analyzedBy: string; // 'ai' | 'keyword'
+		analyzedAt: Date;
+		jobId: mongoose.Schema.Types.ObjectId; // = jobId tại thời điểm phân tích
+	};
+
 	@Prop()
 	createdAt: Date;
 
@@ -61,3 +82,6 @@ export class Resume {
 }
 
 export const ResumeSchema = SchemaFactory.createForClass(Resume);
+
+// Hỗ trợ HR sắp xếp danh sách hồ sơ của công ty theo độ phù hợp (sort=-match.score).
+ResumeSchema.index({ companyId: 1, "match.score": -1 });

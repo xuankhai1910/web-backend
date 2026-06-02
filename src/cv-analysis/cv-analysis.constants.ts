@@ -29,6 +29,17 @@ export const GEMINI_MODEL_CHAIN = [
 export const GEMINI_MAX_RETRIES = 2;
 export const GEMINI_RETRY_DELAYS_MS = [30_000, 60_000];
 
+// ─── HR BATCH MATCH ───────────────────────────────────────
+// How many "analyze all" batch runs each COMPANY gets per calendar month.
+export const MONTHLY_BATCH_LIMIT = 5;
+// Hard cap on CVs handed to the client to score in one batch run.
+export const MAX_BATCH_RESUMES = 100;
+// Floor for the per-run cap (even with few / no Gemini keys configured).
+export const MIN_BATCH_RESUMES = 20;
+// Per-key contribution to the per-run cap. With fewer keys the cap shrinks so
+// a small key pool isn't asked to extract 100 fresh CVs at once.
+export const PER_KEY_BATCH_RESUMES = 30;
+
 // ─── SCORING WEIGHTS ──────────────────────────────────────
 // Rule-based weights — used when no embedding is available.
 //   final = skill*0.25 + skillsInTitle*0.05 + desiredTitle*0.15

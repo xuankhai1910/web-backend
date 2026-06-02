@@ -28,6 +28,11 @@ export class CvEmbeddingService {
     return this.rotator.isAvailable();
   }
 
+  /** Number of configured API keys (0 when Gemini isn't set up). */
+  keyCount(): number {
+    return this.rotator.size();
+  }
+
   /** SHA-256 of the text — used to skip re-embedding unchanged content. */
   computeTextHash(text: string): string {
     return crypto
