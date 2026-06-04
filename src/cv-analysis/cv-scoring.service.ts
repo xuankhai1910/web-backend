@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   HYBRID_WEIGHTS,
-  LEVEL_ALLOWED_TARGETS,
-  LEVEL_DISTANCE_SCORE,
+  LEVEL_MISMATCH_SCORE,
   LEVEL_ORDER,
   NEUTRAL_SCORE,
   RECOMMEND_THRESHOLD,
@@ -44,7 +43,7 @@ export interface ScoreBreakdown {
   titleScore: number;
   /** Similarity between the candidate's desiredJobTitle and the job name. */
   desiredTitleScore: number;
-  /** 1 if CV.desiredSpecialization == job.specialization, 0.5 if only category matches, 0 otherwise. */
+  /** @deprecated No longer scored — always 0. Kept for shape compatibility. */
   specializationScore: number;
   levelScore: number;
   locationScore: number;
@@ -146,22 +145,29 @@ export class CvScoringService {
     return Math.min(1, hits / TITLE_MATCH_NORMALIZER);
   }
 
+  /**
+   * Directional seniority match.
+   *  - same level                      → 1.0
+   *  - 1 level apart, under-qualified   → LEVEL_MISMATCH_SCORE.under (cv < job)
+   *  - 1 level apart, over-qualified    → LEVEL_MISMATCH_SCORE.over  (cv > job)
+   *  - 2+ levels apart                  → 0
+   *  - unknown on either side           → neutral (don't penalise missing data)
+   */
   levelMatchScore(cvLevel: string, jobLevel: string): number {
     const cv = this.canonicalizeLevel(cvLevel);
     const job = this.canonicalizeLevel(jobLevel);
-    // Unknown on either side → neutral, don't penalise data we don't have.
     if (!cv || !job) return NEUTRAL_SCORE;
-
-    // Hard filter: if the job's level is not an acceptable target for the
-    // candidate's level (e.g. INTERN → SENIOR), reject outright.
-    const allowed = LEVEL_ALLOWED_TARGETS[cv];
-    if (allowed && !allowed.includes(job)) return 0;
 
     const cvIdx = LEVEL_ORDER.indexOf(cv as (typeof LEVEL_ORDER)[number]);
     const jobIdx = LEVEL_ORDER.indexOf(job as (typeof LEVEL_ORDER)[number]);
     if (cvIdx === -1 || jobIdx === -1) return NEUTRAL_SCORE;
-    const diff = Math.abs(cvIdx - jobIdx);
-    return LEVEL_DISTANCE_SCORE[diff] ?? 0;
+
+    // diff > 0 → job is more senior than the candidate (under-qualified).
+    const diff = jobIdx - cvIdx;
+    const absDiff = Math.abs(diff);
+    if (absDiff === 0) return 1.0;
+    if (absDiff >= 2) return 0;
+    return diff > 0 ? LEVEL_MISMATCH_SCORE.under : LEVEL_MISMATCH_SCORE.over;
   }
 
   /** Normalise a level string to one of LEVEL_ORDER, or '' if unknown. */
@@ -222,29 +228,6 @@ export class CvScoringService {
   }
 
   /**
-   * IT-domain alignment between the candidate and the job.
-   *  - 1.0 if specializations match exactly (e.g. both "Backend Developer").
-   *  - 0.5 if only categories match (same family, different role).
-   *  - 0.0 if neither matches.
-   * Returns `null` when the signal is not applicable (CV or Job lacks the
-   * data); callers should redistribute the weight.
-   */
-  specializationMatchScore(
-    cv: Pick<ExtractedCvData, 'desiredCategory' | 'desiredSpecialization'>,
-    job: Pick<ScorableJob, 'category' | 'specialization'>,
-  ): number | null {
-    const cvSpec = cv.desiredSpecialization?.trim();
-    const cvCat = cv.desiredCategory?.trim();
-    const jobSpec = job.specialization?.trim();
-    const jobCat = job.category?.trim();
-    if (!jobSpec && !jobCat) return null;
-    if (!cvSpec && !cvCat) return null;
-    if (cvSpec && jobSpec && cvSpec === jobSpec) return 1.0;
-    if (cvCat && jobCat && cvCat === jobCat) return 0.5;
-    return 0;
-  }
-
-  /**
    * Final weighted score.
    * If `vectorScore` is provided (> 0), uses HYBRID_WEIGHTS; otherwise falls
    * back to pure rule-based SCORE_WEIGHTS.
@@ -268,10 +251,6 @@ export class CvScoringService {
     const desiredTitleScoreRaw = this.desiredTitleScore(
       extracted.desiredJobTitle || '',
       job.name || '',
-    );
-    const specializationScoreRaw = this.specializationMatchScore(
-      extracted,
-      job,
     );
     const levelScore = this.levelMatchScore(extracted.level, job.level || '');
     const locationScore = this.locationMatchScore(
@@ -300,12 +279,6 @@ export class CvScoringService {
         score: desiredTitleScoreRaw,
       });
     }
-    if (specializationScoreRaw !== null) {
-      contributions.push({
-        weight: w.specialization,
-        score: specializationScoreRaw,
-      });
-    }
 
     const totalWeight = contributions.reduce((s, c) => s + c.weight, 0);
     const weightedSum = contributions.reduce(
@@ -323,8 +296,9 @@ export class CvScoringService {
         // weight has already been redistributed in the final `score` above.
         titleScore: Math.round((titleScoreRaw ?? 0) * 100) / 100,
         desiredTitleScore: Math.round((desiredTitleScoreRaw ?? 0) * 100) / 100,
-        specializationScore:
-          Math.round((specializationScoreRaw ?? 0) * 100) / 100,
+        // No longer scored — kept at 0 for backward compatibility with the
+        // ScoreBreakdown shape (clients/snapshots that still read the field).
+        specializationScore: 0,
         levelScore: Math.round(levelScore * 100) / 100,
         locationScore: Math.round(locationScore * 100) / 100,
         vectorScore: Math.round(vectorScore * 100) / 100,
@@ -342,8 +316,7 @@ export class CvScoringService {
     return (
       breakdown.skillScore > RECOMMEND_THRESHOLD.skillScore ||
       breakdown.titleScore > RECOMMEND_THRESHOLD.titleScore ||
-      breakdown.desiredTitleScore > RECOMMEND_THRESHOLD.desiredTitleScore ||
-      breakdown.specializationScore > RECOMMEND_THRESHOLD.specializationScore
+      breakdown.desiredTitleScore > RECOMMEND_THRESHOLD.desiredTitleScore
     );
   }
 }

@@ -450,6 +450,27 @@ export class CvAnalysisService {
       analyzedBy: analysis!.analyzedBy,
       analyzedAt: new Date(),
       jobId: resume.jobId,
+      // The candidate side of the match, snapshotted so the comparison modal
+      // can render CV ↔ Job without re-running the analysis.
+      extracted: {
+        skills: extracted.skills,
+        level: extracted.level,
+        yearsOfExperience: extracted.yearsOfExperience,
+        desiredJobTitle: extracted.desiredJobTitle,
+        desiredSpecialization: extracted.desiredSpecialization,
+        preferredLocations: extracted.preferredLocations,
+      },
+      // The job side — the requirements we scored against.
+      jobRequirements: {
+        name: job.name,
+        skills: job.skills ?? [],
+        level: job.level ?? '',
+        location: job.location ?? '',
+        category: job.category ?? '',
+        specialization: job.specialization ?? '',
+        yearsOfExperience: (job as { yearsOfExperience?: unknown })
+          .yearsOfExperience,
+      },
     };
 
     // Persist the match snapshot so the HR list can sort/filter by it.
@@ -460,15 +481,7 @@ export class CvAnalysisService {
         `analyzedBy=${match.analyzedBy}, vectorScore=${result.breakdown.vectorScore}.`,
     );
 
-    return {
-      ...match,
-      extracted: {
-        skills: extracted.skills,
-        level: extracted.level,
-        yearsOfExperience: extracted.yearsOfExperience,
-        desiredJobTitle: extracted.desiredJobTitle,
-      },
-    };
+    return match;
   }
 
   // ─── HR BATCH MATCH ───────────────────────────────────────

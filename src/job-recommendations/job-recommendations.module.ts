@@ -5,7 +5,6 @@ import { CvAnalysisModule } from 'src/cv-analysis/cv-analysis.module';
 import { UserProfilesModule } from 'src/user-profiles/user-profiles.module';
 import { JobRecommendationsController } from './job-recommendations.controller';
 import { JobRecommendationsService } from './job-recommendations.service';
-import { JobScoringService } from './job-scoring.service';
 
 @Module({
   imports: [
@@ -14,6 +13,6 @@ import { JobScoringService } from './job-scoring.service';
     UserProfilesModule,
   ],
   controllers: [JobRecommendationsController],
-  providers: [JobRecommendationsService, JobScoringService],
+  providers: [JobRecommendationsService],
 })
 export class JobRecommendationsModule {}

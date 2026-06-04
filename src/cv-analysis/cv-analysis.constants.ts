@@ -41,29 +41,32 @@ export const MIN_BATCH_RESUMES = 20;
 export const PER_KEY_BATCH_RESUMES = 30;
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
+// `specialization` was dropped from scoring: it isn't available from a user
+// profile at all, and on the CV side it's only an AI guess inferred from the
+// desired title (which already feeds `desiredTitle`). computeScore normalises
+// by the sum of applicable weights, so removing the key redistributes its share
+// proportionally across the remaining signals.
+//
 // Rule-based weights — used when no embedding is available.
 //   final = skill*0.25 + skillsInTitle*0.05 + desiredTitle*0.15
-//         + specialization*0.15 + level*0.25 + location*0.15
+//         + level*0.25 + location*0.15
 export const SCORE_WEIGHTS = {
   skill: 0.25,
   title: 0.05,
   desiredTitle: 0.15,
-  specialization: 0.15,
   level: 0.25,
   location: 0.15,
 } as const;
 
 // Hybrid weights — used when both CV and Job have embeddings.
 //   final = vector*0.22 + skill*0.18 + skillsInTitle*0.05 + desiredTitle*0.10
-//         + specialization*0.15 + level*0.20 + location*0.10
+//         + level*0.20 + location*0.10
 // Level kept high to avoid recommending jobs whose seniority is far from the CV.
-// `specialization` aligns CV ↔ Job along the IT taxonomy (category + role).
 export const HYBRID_WEIGHTS = {
   vector: 0.22,
   skill: 0.18,
   title: 0.05,
   desiredTitle: 0.1,
-  specialization: 0.15,
   level: 0.2,
   location: 0.1,
 } as const;
@@ -79,12 +82,25 @@ export const RECOMMEND_THRESHOLD = {
 // Title-match scoring: hits / TITLE_MATCH_NORMALIZER, capped at 1.
 export const TITLE_MATCH_NORMALIZER = 2;
 
-// Level distance → score map (steeper penalty for far mismatches)
+// Level distance → score map (steeper penalty for far mismatches).
+// Still used by jobs.service (related-jobs). CV↔Job matching uses the
+// directional LEVEL_MISMATCH_SCORE below instead.
 export const LEVEL_DISTANCE_SCORE: Record<number, number> = {
   0: 1.0,
   1: 0.5,
   2: 0.15,
 };
+
+// Directional 1-level mismatch for CV ↔ Job matching:
+//   - `under`: candidate is one level BELOW the job (under-qualified, e.g.
+//     FRESHER applying to a JUNIOR role) → penalise more.
+//   - `over`: candidate is one level ABOVE the job (over-qualified, e.g.
+//     FRESHER applying to an INTERN role) → penalise less, still a fit.
+// 2+ levels apart scores 0 (handled in levelMatchScore).
+export const LEVEL_MISMATCH_SCORE = {
+  under: 0.5,
+  over: 0.8,
+} as const;
 
 // Canonical seniority order (left = most junior). Used for distance + targets.
 export const LEVEL_ORDER = [

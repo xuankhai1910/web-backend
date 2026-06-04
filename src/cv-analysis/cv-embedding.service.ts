@@ -9,8 +9,6 @@ import {
 /** Constants for the embedding pipeline. */
 export const EMBEDDING_MODEL = 'gemini-embedding-2';
 export const EMBEDDING_DIMS = 768;
-/** Hybrid weight: how much the semantic vector contributes vs rule scoring. */
-export const HYBRID_VECTOR_WEIGHT = 0.4;
 
 /**
  * Wraps Gemini embedding calls and provides cosine similarity.

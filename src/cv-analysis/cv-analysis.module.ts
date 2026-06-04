@@ -38,6 +38,11 @@ import {
     CvScoringService,
     CvEmbeddingService,
   ],
-  exports: [CvAnalysisService, CvEmbeddingService, GeminiKeyRotator],
+  exports: [
+    CvAnalysisService,
+    CvEmbeddingService,
+    CvScoringService,
+    GeminiKeyRotator,
+  ],
 })
 export class CvAnalysisModule {}

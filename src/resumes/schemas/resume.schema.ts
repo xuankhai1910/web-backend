@@ -54,6 +54,25 @@ export class Resume {
 		analyzedBy: string; // 'ai' | 'keyword'
 		analyzedAt: Date;
 		jobId: mongoose.Schema.Types.ObjectId; // = jobId tại thời điểm phân tích
+		// Snapshot 2 phía để modal so sánh CV ↔ Job mở được từ danh sách mà
+		// không phải phân tích lại. Optional: match cũ (trước feature) sẽ thiếu.
+		extracted?: {
+			skills: string[];
+			level: string;
+			yearsOfExperience: number;
+			desiredJobTitle?: string;
+			desiredSpecialization?: string;
+			preferredLocations?: string[];
+		};
+		jobRequirements?: {
+			name?: string;
+			skills: string[];
+			level?: string;
+			location?: string;
+			category?: string;
+			specialization?: string;
+			yearsOfExperience?: { min?: number; max?: number };
+		};
 	};
 
 	@Prop()

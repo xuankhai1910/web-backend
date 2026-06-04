@@ -13,11 +13,17 @@ import {
 } from 'src/user-profiles/schemas/user-profile.schema';
 import { ProfileEmbeddingService } from 'src/user-profiles/profile-embedding.service';
 import type { IUser } from 'src/users/users.interface';
-import { JobScoringService, JobScore } from './job-scoring.service';
+import {
+  CvScoringService,
+  ScorableJob,
+  ScoreResult,
+} from 'src/cv-analysis/cv-scoring.service';
+import { CvEmbeddingService } from 'src/cv-analysis/cv-embedding.service';
+import { profileToExtractedCv } from './profile-to-cv';
 
 export interface RecommendedJob {
   job: JobDocument;
-  score: JobScore;
+  score: ScoreResult;
 }
 
 /** Max number of active jobs we score in-memory per request. */
@@ -37,7 +43,8 @@ export class JobRecommendationsService {
     @InjectModel(UserProfile.name)
     private profileModel: SoftDeleteModel<UserProfileDocument>,
     private readonly profileEmbedding: ProfileEmbeddingService,
-    private readonly scoring: JobScoringService,
+    private readonly scoring: CvScoringService,
+    private readonly embedding: CvEmbeddingService,
   ) {}
 
   /**
@@ -84,18 +91,49 @@ export class JobRecommendationsService {
       .sort({ updatedAt: -1 })
       .limit(CANDIDATE_LIMIT);
 
+    // Adapt the structured profile into the same shape the uploaded-CV pipeline
+    // produces, then reuse the unified 7-signal hybrid scorer so both
+    // recommenders rank — and explain — matches the same way.
+    const extracted = profileToExtractedCv(profile);
+    const hasProfileEmbedding = (profile.embedding?.length || 0) > 0;
+
     const scored: RecommendedJob[] = candidates
-      .map((job) => ({ job, score: this.scoring.score(profile, job) }))
+      .map((job) => {
+        let vectorScore = 0;
+        const jobEmbedding = job.embedding as number[] | undefined;
+        if (hasProfileEmbedding && jobEmbedding && jobEmbedding.length > 0) {
+          vectorScore = this.embedding.toScore(
+            this.embedding.cosineSimilarity(profile.embedding, jobEmbedding),
+          );
+        }
+        return {
+          job,
+          score: this.scoring.computeScore(
+            extracted,
+            job as unknown as ScorableJob,
+            vectorScore,
+          ),
+        };
+      })
       // Drop noise: jobs with no overlap and near-zero semantic similarity.
-      .filter((r) => r.score.finalScore > 0.05)
-      .sort((a, b) => b.score.finalScore - a.score.finalScore)
+      .filter((r) => r.score.score > 0.05)
+      .sort((a, b) => b.score.score - a.score.score)
       .slice(0, safeLimit);
 
     return {
       profile: {
         _id: profile._id,
         completionScore: profile.completionScore,
-        hasEmbedding: (profile.embedding?.length || 0) > 0,
+        hasEmbedding: hasProfileEmbedding,
+      },
+      // The candidate side of the match — lets the FE render the comparison
+      // modal (CV ↔ Job) without re-deriving anything client-side.
+      cvSummary: {
+        skills: extracted.skills,
+        level: extracted.level,
+        yearsOfExperience: extracted.yearsOfExperience,
+        desiredJobTitle: extracted.desiredJobTitle,
+        preferredLocations: extracted.preferredLocations,
       },
       total: scored.length,
       items: scored.map(({ job, score }) => {
@@ -111,10 +149,11 @@ export class JobRecommendationsService {
         return {
           ...publicJob,
           recommendation: {
-            finalScore: Number(score.finalScore.toFixed(4)),
-            vectorScore: Number(score.vectorScore.toFixed(4)),
-            skillScore: Number(score.skillScore.toFixed(4)),
+            finalScore: score.score,
+            vectorScore: score.breakdown.vectorScore,
+            skillScore: score.breakdown.skillScore,
             matchedSkills: score.matchedSkills,
+            breakdown: score.breakdown,
           },
         };
       }),
