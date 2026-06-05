@@ -36,6 +36,12 @@ export class User {
   @Prop()
   refreshToken: string;
 
+  @Prop({ select: false })
+  passwordResetToken: string;
+
+  @Prop({ select: false })
+  passwordResetExpires: Date;
+
   @Prop({ type: Object })
   recommendationCv: {
     resumeUrl: string;

@@ -18,6 +18,11 @@ import type { IUser } from "src/users/users.interface";
 import { RolesService } from "src/roles/roles.service";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { ApiBody, ApiTags } from "@nestjs/swagger";
+import {
+	ChangePasswordDto,
+	ForgotPasswordDto,
+	ResetPasswordDto,
+} from "./dto/password.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -48,6 +53,31 @@ export class AuthController {
 	@Post("/register")
 	async register(@Body() registerUserDto: RegisterUserDto) {
 		return this.authService.register(registerUserDto);
+	}
+
+	@ResponseMessage("Password changed successfully")
+	@Post("/change-password")
+	async changePassword(
+		@User() user: IUser,
+		@Body() changePasswordDto: ChangePasswordDto,
+	) {
+		return this.authService.changePassword(user, changePasswordDto);
+	}
+
+	@Throttle({ default: { limit: 5, ttl: 60000 } })
+	@ResponseMessage("Password reset email sent")
+	@Public()
+	@Post("/forgot-password")
+	async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+		return this.authService.forgotPassword(forgotPasswordDto);
+	}
+
+	@Throttle({ default: { limit: 5, ttl: 60000 } })
+	@ResponseMessage("Password reset successfully")
+	@Public()
+	@Post("/reset-password")
+	async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+		return this.authService.resetPassword(resetPasswordDto);
 	}
 
 	@ResponseMessage("Get user's account successfully")

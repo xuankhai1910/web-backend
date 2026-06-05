@@ -9,12 +9,14 @@ import { JwtStrategy } from "./passport/jwt.strategy";
 import { AuthController } from "./auth.controller";
 import { UsersService } from "src/users/users.service";
 import { RolesModule } from "src/roles/roles.module";
+import { MailModule } from "src/mail/mail.module";
 
 @Module({
 	imports: [
 		UsersModule,
 		PassportModule,
 		RolesModule,
+		MailModule,
 
 		JwtModule.registerAsync({
 			imports: [ConfigModule],

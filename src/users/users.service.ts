@@ -68,7 +68,7 @@ export class UsersService {
       ...registerUserDto,
       password: hashPassword,
     } as any);
-    return user;
+    return { _id: user._id, createdAt: user.createdAt };
   }
 
   async findAll(currentPage: number, limit: number, qs: string) {
@@ -98,7 +98,7 @@ export class UsersService {
       .skip(offset)
       .limit(defaultLimit)
       .sort(stableSort)
-      .select('-password')
+      .select('-password -refreshToken -passwordResetToken -passwordResetExpires')
       .populate(population)
       .exec();
 
@@ -121,7 +121,7 @@ export class UsersService {
       .findOne({
         _id: id,
       })
-      .select('-password')
+      .select('-password -refreshToken -passwordResetToken -passwordResetExpires')
       .populate({ path: 'role', select: { name: 1, _id: 1 } });
   }
 
@@ -130,12 +130,73 @@ export class UsersService {
       .findOne({
         email: username,
       })
+      .select('-refreshToken -passwordResetToken -passwordResetExpires')
       .populate({ path: 'role', select: { name: 1 } });
+  }
+
+  findOneByEmail(email: string) {
+    return this.userModel.findOne({ email });
+  }
+
+  findByIdWithPassword(id: string) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    return this.userModel.findById(id);
   }
 
   isValidPassword(password: string, hash: string) {
     return compareSync(password, hash);
   }
+
+  setPasswordResetToken = async (
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ) => {
+    return this.userModel.updateOne(
+      { _id: userId },
+      {
+        passwordResetToken: tokenHash,
+        passwordResetExpires: expiresAt,
+      },
+    );
+  };
+
+  findUserByPasswordResetToken = async (tokenHash: string) => {
+    return this.userModel
+      .findOne({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: { $gt: new Date() },
+      })
+      .select('+passwordResetToken +passwordResetExpires');
+  };
+
+  updatePassword = async (
+    userId: string,
+    password: string,
+    options?: { clearRefreshToken?: boolean },
+  ) => {
+    const hashPassword = this.getHashPassword(password);
+    const update: Record<string, unknown> = {
+      password: hashPassword,
+    };
+
+    if (options?.clearRefreshToken) {
+      update.refreshToken = '';
+    }
+
+    return this.userModel.updateOne(
+      { _id: userId },
+      {
+        $set: update,
+        $unset: {
+          passwordResetToken: '',
+          passwordResetExpires: '',
+        },
+      },
+    );
+  };
 
   async update(
     updateUserDto: UpdateUserDto,
