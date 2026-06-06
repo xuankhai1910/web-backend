@@ -80,7 +80,7 @@ GENERAL RULE: Extract ONLY what is explicitly written in the CV. Do not invent, 
     * "Trung học phổ thông" — only if highest is high school
     * "" (empty) — only if the CV truly has no education info at all.
 
-- "preferredLocations": Extract address / city / preferred work locations. If address is "Đông Anh, Hà Nội" → ["Hà Nội"]. Always try to return at least the city. Empty array only if nothing is found.
+- "preferredLocations": Extract address / city / preferred work locations. Normalize Vietnamese city names and common abbreviations to canonical city/province names. Examples: "Đông Anh, Hà Nội" → ["Hà Nội"], "HN" / "Ha Noi" / "HaNoi" → ["Hà Nội"], "HCM" / "HCMC" / "TPHCM" / "TP.HCM" / "SG" / "Sai Gon" → ["TP. Hồ Chí Minh"]. Always try to return at least the city. Empty array only if nothing is found.
 
 - "summary": A brief 1–2 sentence professional summary of the candidate (factual, no embellishment).
 

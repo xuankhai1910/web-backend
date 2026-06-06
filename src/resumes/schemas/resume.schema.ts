@@ -46,6 +46,7 @@ export class Resume {
 			skillScore: number;
 			titleScore: number;
 			desiredTitleScore: number;
+			roleScore: number;
 			specializationScore: number;
 			levelScore: number;
 			locationScore: number;
@@ -61,6 +62,7 @@ export class Resume {
 			level: string;
 			yearsOfExperience: number;
 			desiredJobTitle?: string;
+			desiredCategory?: string;
 			desiredSpecialization?: string;
 			preferredLocations?: string[];
 		};

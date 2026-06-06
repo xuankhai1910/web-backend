@@ -18,6 +18,12 @@ export class ExtractedData {
   @Prop({ default: '' })
   desiredJobTitle: string;
 
+  @Prop({ default: '' })
+  desiredCategory: string;
+
+  @Prop({ default: '' })
+  desiredSpecialization: string;
+
   @Prop()
   education: string;
 

@@ -5,6 +5,7 @@ function buildBreakdown(vectorScore: number) {
     skillScore: 1,
     titleScore: 1,
     desiredTitleScore: 1,
+    roleScore: 1,
     specializationScore: 0,
     levelScore: 1,
     locationScore: 1,

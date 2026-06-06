@@ -48,32 +48,35 @@ export const PER_KEY_BATCH_RESUMES = 30;
 // proportionally across the remaining signals.
 //
 // Rule-based weights — used when no embedding is available.
-//   final = skill*0.25 + skillsInTitle*0.05 + desiredTitle*0.15
-//         + level*0.25 + location*0.15
+// Role/title signals intentionally own 50% of the score:
+//   role(0.25) + desiredTitle(0.20) + skillsInTitle(0.05) = 0.50
+// This keeps recommendations anchored to the candidate's target role.
 export const SCORE_WEIGHTS = {
   skill: 0.25,
+  role: 0.25,
   title: 0.05,
-  desiredTitle: 0.15,
-  level: 0.25,
-  location: 0.15,
+  desiredTitle: 0.2,
+  level: 0.15,
+  location: 0.1,
 } as const;
 
 // Hybrid weights — used when both CV and Job have embeddings.
-//   final = vector*0.22 + skill*0.18 + skillsInTitle*0.05 + desiredTitle*0.10
-//         + level*0.20 + location*0.10
-// Level kept high to avoid recommending jobs whose seniority is far from the CV.
+// Vector is useful as a supporting signal, but role/title still own 50% so
+// same-domain IT documents do not outrank the candidate's explicit target role.
 export const HYBRID_WEIGHTS = {
-  vector: 0.22,
-  skill: 0.18,
+  vector: 0.1,
+  skill: 0.25,
+  role: 0.25,
   title: 0.05,
-  desiredTitle: 0.1,
-  level: 0.2,
-  location: 0.1,
+  desiredTitle: 0.2,
+  level: 0.1,
+  location: 0.05,
 } as const;
 
 // Filter threshold — only recommend jobs above one of these signals.
 export const RECOMMEND_THRESHOLD = {
   skillScore: 0.3,
+  roleScore: 0.7,
   titleScore: 0.5,
   desiredTitleScore: 0.5,
   specializationScore: 0.5,
@@ -145,7 +148,12 @@ export const TITLE_STOPWORDS = new Set([
   'mid',
   'middle',
   'intern',
+  'internship',
   'fresher',
+  'thuc',
+  'tap',
+  'sinh',
+  'tts',
   'remote',
   'onsite',
   'hybrid',

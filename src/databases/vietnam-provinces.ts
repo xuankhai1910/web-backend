@@ -174,6 +174,7 @@ export const DISTRICT_HINT: Record<string, VNProvince> = {
   'dong anh': 'Hà Nội',
   'son tay': 'Hà Nội',
   'ha noi': 'Hà Nội',
+  hn: 'Hà Nội',
 
   // TP.HCM (gồm Bình Dương, Bà Rịa-Vũng Tàu đã sáp nhập)
   'thu duc': 'TP. Hồ Chí Minh',
@@ -190,6 +191,7 @@ export const DISTRICT_HINT: Record<string, VNProvince> = {
   'di an': 'TP. Hồ Chí Minh',
   'thu dau mot': 'TP. Hồ Chí Minh',
   'sai gon': 'TP. Hồ Chí Minh',
+  sg: 'TP. Hồ Chí Minh',
   'ho chi minh': 'TP. Hồ Chí Minh',
   hcm: 'TP. Hồ Chí Minh',
   hcmc: 'TP. Hồ Chí Minh',

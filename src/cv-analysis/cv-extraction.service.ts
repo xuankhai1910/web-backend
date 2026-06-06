@@ -5,6 +5,7 @@ import * as path from 'path';
 import { PDFParse } from 'pdf-parse';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
+import { resolveProvince } from 'src/databases/vietnam-provinces';
 import {
   GEMINI_MAX_RETRIES,
   GEMINI_MODEL_CHAIN,
@@ -107,7 +108,9 @@ export class CvExtractionService {
           parsed.skills = (parsed.skills ?? []).map((s) =>
             s.toLowerCase().trim(),
           );
-          parsed.preferredLocations = parsed.preferredLocations ?? [];
+          parsed.preferredLocations = this.normalizePreferredLocations(
+            parsed.preferredLocations ?? [],
+          );
           parsed.desiredJobTitle = (parsed.desiredJobTitle ?? '').trim();
           parsed.desiredCategory = (parsed.desiredCategory ?? '').trim();
           parsed.desiredSpecialization = (
@@ -222,17 +225,7 @@ export class CvExtractionService {
       if (text.includes(skill)) matchedSkills.push(skill);
     }
 
-    const detectedLocations: string[] = [];
-    for (const city of VIETNAM_CITIES) {
-      if (text.includes(city)) {
-        detectedLocations.push(
-          city
-            .split(' ')
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' '),
-        );
-      }
-    }
+    const detectedLocations = this.detectLocations(text);
 
     return {
       skills: matchedSkills,
@@ -245,6 +238,32 @@ export class CvExtractionService {
       preferredLocations: detectedLocations,
       summary: 'Analyzed using keyword matching fallback.',
     };
+  }
+
+  private normalizePreferredLocations(locations: string[]): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const location of locations) {
+      const normalized = resolveProvince(location) ?? location.trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+    return out;
+  }
+
+  private detectLocations(text: string): string[] {
+    const detected = new Set<string>();
+
+    const resolved = resolveProvince(text);
+    if (resolved) detected.add(resolved);
+
+    for (const city of VIETNAM_CITIES) {
+      const resolvedCity = resolveProvince(city) ?? city;
+      if (text.includes(city)) detected.add(resolvedCity);
+    }
+
+    return [...detected];
   }
 
   /** Build/return a TTL-cached skill dictionary from the Job collection. */

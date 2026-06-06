@@ -10,6 +10,8 @@ import {
   TITLE_MATCH_NORMALIZER,
   TITLE_STOPWORDS,
 } from './cv-analysis.constants';
+import { roleCompatibilityScore } from './role-compatibility';
+import { resolveProvince } from 'src/databases/vietnam-provinces';
 
 /** Structured data extracted from a CV. */
 export interface ExtractedCvData {
@@ -43,6 +45,8 @@ export interface ScoreBreakdown {
   titleScore: number;
   /** Similarity between the candidate's desiredJobTitle and the job name. */
   desiredTitleScore: number;
+  /** Taxonomy-aware compatibility between the candidate role and the job role. */
+  roleScore: number;
   /** @deprecated No longer scored — always 0. Kept for shape compatibility. */
   specializationScore: number;
   levelScore: number;
@@ -69,6 +73,34 @@ export class CvScoringService {
       .toLowerCase()
       .trim()
       .replace(/[.\s_-]+/g, '');
+  }
+
+  private normalizeTitleText(title: string): string {
+    return (title || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u0111/g, 'd')
+      .replace(/\bfull\s*[-/]?\s*stack\b/g, 'fullstack')
+      .replace(/\bfront\s*[-/]?\s*end\b/g, 'frontend')
+      .replace(/\bback\s*[-/]?\s*end\b/g, 'backend')
+      .replace(/\breact\s*[-/]?\s*js\b/g, 'reactjs')
+      .replace(/\bnode\s*[-/]?\s*js\b/g, 'nodejs')
+      .replace(/\bnext\s*[-/]?\s*js\b/g, 'nextjs')
+      .replace(/\bvue\s*[-/]?\s*js\b/g, 'vuejs')
+      .trim();
+  }
+
+  private normalizeLocationText(location: string): string {
+    const resolved = resolveProvince(location) ?? location;
+    return (resolved || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u0111/g, 'd')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /** Canonical form via alias table; falls back to normalized input. */
@@ -116,8 +148,7 @@ export class CvScoringService {
    */
   titleMatchScore(cvSkills: string[], jobName: string): number | null {
     if (!jobName || !cvSkills?.length) return null;
-    const titleTokens = jobName
-      .toLowerCase()
+    const titleTokens = this.normalizeTitleText(jobName)
       .split(/[^a-z0-9+#.]+/)
       .map((t) => this.normalizeSkill(t))
       .filter((t) => t.length >= 2 && !TITLE_STOPWORDS.has(t));
@@ -200,8 +231,7 @@ export class CvScoringService {
     if (!desiredTitle?.trim() || !jobName?.trim()) return null;
     const tokenise = (s: string) =>
       new Set(
-        s
-          .toLowerCase()
+        this.normalizeTitleText(s)
           .split(/[^a-z0-9+#./]+/)
           .map((t) => t.replace(/[.\/]+/g, ''))
           .filter((t) => t.length >= 2 && !TITLE_STOPWORDS.has(t)),
@@ -217,9 +247,11 @@ export class CvScoringService {
 
   locationMatchScore(cvLocations: string[], jobLocation: string): number {
     if (!cvLocations?.length || !jobLocation) return NEUTRAL_SCORE;
-    const jobLoc = jobLocation.toLowerCase();
+    const jobLoc = this.normalizeLocationText(jobLocation);
+    if (!jobLoc) return NEUTRAL_SCORE;
     for (const loc of cvLocations) {
-      const candidate = loc.toLowerCase();
+      const candidate = this.normalizeLocationText(loc);
+      if (!candidate) continue;
       if (jobLoc.includes(candidate) || candidate.includes(jobLoc)) {
         return 1.0;
       }
@@ -233,10 +265,10 @@ export class CvScoringService {
    * back to pure rule-based SCORE_WEIGHTS.
    *
    * Signals that are "not applicable" (e.g. job title has no meaningful tokens
-   * after stop-word removal) are excluded from BOTH numerator and denominator
-   * — their weight is redistributed pro-rata across the remaining signals.
-   * This prevents an "Intern Developer" job from being capped below 1.0 just
-   * because its title is too generic to compute title/desiredTitle scores.
+   * after stop-word removal) are scored as neutral instead of being removed.
+   * Removing them shrinks the denominator and can over-reward very generic
+   * titles such as "Developer Intern" compared with a more specific title like
+   * "Full Stack Developer".
    */
   computeScore(
     extracted: ExtractedCvData,
@@ -252,6 +284,20 @@ export class CvScoringService {
       extracted.desiredJobTitle || '',
       job.name || '',
     );
+    const roleScore = roleCompatibilityScore(
+      {
+        category: extracted.desiredCategory,
+        specialization: extracted.desiredSpecialization,
+        title: extracted.desiredJobTitle,
+        skills: extracted.skills,
+      },
+      {
+        category: job.category,
+        specialization: job.specialization,
+        title: job.name,
+        skills: job.skills,
+      },
+    );
     const levelScore = this.levelMatchScore(extracted.level, job.level || '');
     const locationScore = this.locationMatchScore(
       extracted.preferredLocations,
@@ -261,24 +307,25 @@ export class CvScoringService {
     const useHybrid = vectorScore > 0;
     const w = useHybrid ? HYBRID_WEIGHTS : SCORE_WEIGHTS;
 
-    // Build (weight, score) pairs only for signals that are applicable.
+    // Keep the denominator stable. Generic titles get neutral title signals
+    // rather than redistributing their weight to level/location/vector.
     const contributions: Array<{ weight: number; score: number }> = [
       { weight: w.skill, score: skillScore },
+      { weight: w.role, score: roleScore },
       { weight: w.level, score: levelScore },
       { weight: w.location, score: locationScore },
     ];
     if (useHybrid) {
       contributions.push({ weight: HYBRID_WEIGHTS.vector, score: vectorScore });
     }
-    if (titleScoreRaw !== null) {
-      contributions.push({ weight: w.title, score: titleScoreRaw });
-    }
-    if (desiredTitleScoreRaw !== null) {
-      contributions.push({
-        weight: w.desiredTitle,
-        score: desiredTitleScoreRaw,
-      });
-    }
+    contributions.push({
+      weight: w.title,
+      score: titleScoreRaw ?? NEUTRAL_SCORE,
+    });
+    contributions.push({
+      weight: w.desiredTitle,
+      score: desiredTitleScoreRaw ?? NEUTRAL_SCORE,
+    });
 
     const totalWeight = contributions.reduce((s, c) => s + c.weight, 0);
     const weightedSum = contributions.reduce(
@@ -296,6 +343,7 @@ export class CvScoringService {
         // weight has already been redistributed in the final `score` above.
         titleScore: Math.round((titleScoreRaw ?? 0) * 100) / 100,
         desiredTitleScore: Math.round((desiredTitleScoreRaw ?? 0) * 100) / 100,
+        roleScore: Math.round(roleScore * 100) / 100,
         // No longer scored — kept at 0 for backward compatibility with the
         // ScoreBreakdown shape (clients/snapshots that still read the field).
         specializationScore: 0,
@@ -315,6 +363,7 @@ export class CvScoringService {
     if (breakdown.levelScore <= 0) return false;
     return (
       breakdown.skillScore > RECOMMEND_THRESHOLD.skillScore ||
+      breakdown.roleScore > RECOMMEND_THRESHOLD.roleScore ||
       breakdown.titleScore > RECOMMEND_THRESHOLD.titleScore ||
       breakdown.desiredTitleScore > RECOMMEND_THRESHOLD.desiredTitleScore
     );
