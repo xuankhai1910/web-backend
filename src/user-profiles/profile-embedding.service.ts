@@ -27,53 +27,65 @@ export class ProfileEmbeddingService {
    * suitable for embedding. Mirrors `CvEmbeddingService.buildCvText`.
    */
   buildProfileText(profile: Partial<UserProfile>): string {
-    const skills = (profile.skills || [])
-      .map((s) => s?.name)
-      .filter(Boolean)
-      .join(', ');
+    const targetRole = profile.title?.trim() || '';
+    const skills = this.joinList((profile.skills || []).map((s) => s?.name));
 
-    const positions = (profile.experiences || [])
-      .map((e) => e?.position)
-      .filter(Boolean)
-      .join(', ');
+    const positions = this.joinList(
+      (profile.experiences || []).map((e) => e?.position),
+    );
 
-    const experienceText = (profile.experiences || [])
-      .map((e) => e?.description)
-      .filter(Boolean)
-      .join('. ');
+    const experienceText = this.stripAndTruncate(
+      (profile.experiences || [])
+        .map((e) => e?.description)
+        .filter(Boolean)
+        .join('. '),
+      1000,
+    );
 
-    const techStacks = Array.from(
-      new Set(
-        (profile.projects || [])
-          .flatMap((p) => p?.techStack || [])
-          .filter(Boolean),
-      ),
-    ).join(', ');
+    const techStacks = this.joinList(
+      (profile.projects || []).flatMap((p) => p?.techStack || []),
+    );
 
-    const fields = (profile.education || [])
-      .map((e) => e?.field)
-      .filter(Boolean)
-      .join(', ');
+    const fields = this.joinList(
+      (profile.education || []).map((e) => e?.field),
+    );
 
-    const certifications = (profile.certifications || [])
-      .map((c) => c?.name)
-      .filter(Boolean)
-      .join(', ');
+    const certifications = this.joinList(
+      (profile.certifications || []).map((c) => c?.name),
+    );
 
     const parts = [
-      profile.summary || '',
-      skills ? `Skills: ${skills}` : '',
+      targetRole ? `Target role: ${targetRole}` : '',
+      skills ? `Core skills: ${skills}` : '',
       positions ? `Positions: ${positions}` : '',
       techStacks ? `Tech stack: ${techStacks}` : '',
       fields ? `Education fields: ${fields}` : '',
       certifications ? `Certifications: ${certifications}` : '',
-      experienceText,
+      experienceText ? `Experience summary: ${experienceText}` : '',
+      profile.summary ? `Summary: ${profile.summary}` : '',
     ];
 
+    return this.compactParts(parts);
+  }
+
+  private compactParts(parts: string[]): string {
     return parts
       .map((p) => p.trim())
       .filter((p) => p.length > 0)
       .join('. ');
+  }
+
+  private joinList(values: Array<string | undefined>): string {
+    return Array.from(
+      new Set(values.map((v) => v?.trim()).filter(Boolean)),
+    ).join(', ');
+  }
+
+  private stripAndTruncate(text: string, maxLen: number): string {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    return normalized.length > maxLen
+      ? normalized.slice(0, maxLen)
+      : normalized;
   }
 
   /**

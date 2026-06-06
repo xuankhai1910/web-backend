@@ -6,6 +6,7 @@ import { CvExtractionService } from './cv-extraction.service';
 import { CvScoringService } from './cv-scoring.service';
 import { CvEmbeddingService } from './cv-embedding.service';
 import { GeminiKeyRotator } from './gemini-key-rotator.service';
+import { JobVectorSearchService } from './job-vector-search.service';
 import { CvAnalysis, CvAnalysisSchema } from './schemas/cv-analysis.schema';
 import {
   AnalysisBatchUsage,
@@ -37,12 +38,14 @@ import {
     CvExtractionService,
     CvScoringService,
     CvEmbeddingService,
+    JobVectorSearchService,
   ],
   exports: [
     CvAnalysisService,
     CvEmbeddingService,
     CvScoringService,
     GeminiKeyRotator,
+    JobVectorSearchService,
   ],
 })
 export class CvAnalysisModule {}

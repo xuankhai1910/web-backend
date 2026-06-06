@@ -57,7 +57,8 @@ class Project {
 @Schema({ _id: false })
 class Skill {
   @Prop() name: string;
-  @Prop({ enum: SKILL_LEVELS, default: 'INTERMEDIATE' }) level: SkillLevel;
+  @Prop({ type: String, enum: SKILL_LEVELS, default: 'INTERMEDIATE' })
+  level: SkillLevel;
 }
 
 @Schema({ _id: false })

@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import {
   EMBEDDING_DIMS,
   EMBEDDING_MODEL,
+  EMBEDDING_TEXT_VERSION,
 } from '../cv-analysis/cv-embedding.service';
 
 type JobForEmbedding = {
@@ -44,7 +45,9 @@ function sleep(ms: number) {
 function hash(text: string) {
   return crypto
     .createHash('sha256')
-    .update(`${EMBEDDING_MODEL}:${EMBEDDING_DIMS}\n${text}`)
+    .update(
+      `${EMBEDDING_MODEL}:${EMBEDDING_DIMS}:${EMBEDDING_TEXT_VERSION}\n${text}`,
+    )
     .digest('hex');
 }
 
@@ -56,21 +59,35 @@ function stripAndTruncate(html: string, maxLen: number) {
   return text.length > maxLen ? text.slice(0, maxLen) : text;
 }
 
+function compactParts(parts: string[]) {
+  return parts
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join('. ');
+}
+
+function joinList(values?: string[]) {
+  return Array.from(
+    new Set((values || []).map((value) => value?.trim()).filter(Boolean)),
+  ).join(', ');
+}
+
 function buildJobText(job: JobForEmbedding) {
   const yoe = job.yearsOfExperience;
   const yoeStr =
     yoe && (yoe.min !== undefined || yoe.max !== undefined)
       ? `YOE: ${yoe.min ?? 0}-${yoe.max ?? yoe.min ?? 0} years`
       : '';
+  const skills = joinList(job.skills);
   const parts = [
-    job.name || '',
+    job.name ? `Role: ${job.name}` : '',
+    skills ? `Core skills: ${skills}` : '',
     job.category ? `Category: ${job.category}` : '',
     job.specialization ? `Specialization: ${job.specialization}` : '',
-    `Skills: ${(job.skills || []).join(', ')}`,
-    `Level: ${job.level || ''}`,
+    job.level ? `Seniority: ${job.level}` : '',
     job.jobType ? `JobType: ${job.jobType}` : '',
     job.workMode ? `WorkMode: ${job.workMode}` : '',
-    `Location: ${job.location || ''}`,
+    job.location ? `Location: ${job.location}` : '',
     yoeStr,
     (job.requirements || []).length > 0
       ? `Requirements: ${(job.requirements || []).join('; ')}`
@@ -78,9 +95,9 @@ function buildJobText(job: JobForEmbedding) {
     (job.responsibilities || []).length > 0
       ? `Responsibilities: ${(job.responsibilities || []).join('; ')}`
       : '',
-    stripAndTruncate(job.description || '', 1200),
+    stripAndTruncate(job.description || '', 800),
   ];
-  return parts.filter((part) => part.trim().length > 0).join('. ');
+  return compactParts(parts);
 }
 
 function retryDelayMs(error: unknown) {

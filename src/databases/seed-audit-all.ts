@@ -6,6 +6,15 @@ async function main() {
   const db = mongoose.connection.db!;
   const jobs = db.collection('jobs');
   const cos = db.collection('companies');
+  const activeJobFilter = {
+    isActive: true,
+    endDate: { $gte: new Date() },
+    deleted: { $ne: true },
+  };
+  const embeddingDimsExpr = {
+    $cond: [{ $isArray: '$embedding' }, { $size: '$embedding' }, 0],
+  };
+  const embedding768Expr = { $eq: [embeddingDimsExpr, 768] };
 
   const totalCos = await cos.countDocuments();
   const withLogo = await cos.countDocuments({ logo: { $nin: ['', null] } });
@@ -34,6 +43,14 @@ async function main() {
   const embed = await jobs.countDocuments({
     embedding: { $exists: true, $not: { $size: 0 } },
   });
+  const embed768 = await jobs.countDocuments({
+    $expr: embedding768Expr,
+  });
+  const activeJobs = await jobs.countDocuments(activeJobFilter);
+  const activeEmbed768 = await jobs.countDocuments({
+    ...activeJobFilter,
+    $expr: embedding768Expr,
+  });
   console.log(`\n=== JOBS (total ${totalJ}) ===`);
   console.log(
     `  desc > 200 chars:  ${longDesc}/${totalJ} (${((longDesc / totalJ) * 100).toFixed(1)}%)`,
@@ -49,6 +66,12 @@ async function main() {
   );
   console.log(
     `  has embedding:     ${embed}/${totalJ} (${((embed / totalJ) * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `  embedding 768 dim:  ${embed768}/${totalJ} (${((embed768 / totalJ) * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `  active 768 dim:     ${activeEmbed768}/${activeJobs} (${activeJobs ? ((activeEmbed768 / activeJobs) * 100).toFixed(1) : '0.0'}%)`,
   );
 
   // Category distribution

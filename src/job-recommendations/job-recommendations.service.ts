@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { SoftDeleteModel } from 'mongoose-delete';
-import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import {
   UserProfile,
   UserProfileDocument,
@@ -19,15 +18,17 @@ import {
   ScoreResult,
 } from 'src/cv-analysis/cv-scoring.service';
 import { CvEmbeddingService } from 'src/cv-analysis/cv-embedding.service';
+import {
+  JobVectorCandidate,
+  JobVectorSearchService,
+} from 'src/cv-analysis/job-vector-search.service';
 import { profileToExtractedCv } from './profile-to-cv';
 
 export interface RecommendedJob {
-  job: JobDocument;
+  job: JobVectorCandidate;
   score: ScoreResult;
 }
 
-/** Max number of active jobs we score in-memory per request. */
-const CANDIDATE_LIMIT = 500;
 /** Hard cap on results returned to the client. */
 const MAX_LIMIT = 50;
 /** Default page size. */
@@ -38,13 +39,12 @@ export class JobRecommendationsService {
   private readonly logger = new Logger(JobRecommendationsService.name);
 
   constructor(
-    @InjectModel(Job.name)
-    private jobModel: SoftDeleteModel<JobDocument>,
     @InjectModel(UserProfile.name)
     private profileModel: SoftDeleteModel<UserProfileDocument>,
     private readonly profileEmbedding: ProfileEmbeddingService,
     private readonly scoring: CvScoringService,
     private readonly embedding: CvEmbeddingService,
+    private readonly jobVectorSearch: JobVectorSearchService,
   ) {}
 
   /**
@@ -82,14 +82,13 @@ export class JobRecommendationsService {
       }
     }
 
-    const now = new Date();
-    const candidates = await this.jobModel
-      .find({
-        isActive: true,
-        endDate: { $gte: now },
-      })
-      .sort({ updatedAt: -1 })
-      .limit(CANDIDATE_LIMIT);
+    const search = await this.jobVectorSearch.findCandidates(
+      profile.embedding,
+    );
+    const candidates = search.jobs;
+    this.logger.log(
+      `[profile-recommendations] mode=${search.mode} candidates=${candidates.length} limit=${safeLimit}`,
+    );
 
     // Adapt the structured profile into the same shape the uploaded-CV pipeline
     // produces, then reuse the unified 7-signal hybrid scorer so both
@@ -99,13 +98,11 @@ export class JobRecommendationsService {
 
     const scored: RecommendedJob[] = candidates
       .map((job) => {
-        let vectorScore = 0;
-        const jobEmbedding = job.embedding as number[] | undefined;
-        if (hasProfileEmbedding && jobEmbedding && jobEmbedding.length > 0) {
-          vectorScore = this.embedding.toScore(
-            this.embedding.cosineSimilarity(profile.embedding, jobEmbedding),
-          );
-        }
+        const vectorScore = this.resolveVectorScore(
+          job,
+          profile.embedding,
+          hasProfileEmbedding,
+        );
         return {
           job,
           score: this.scoring.computeScore(
@@ -138,14 +135,7 @@ export class JobRecommendationsService {
       total: scored.length,
       items: scored.map(({ job, score }) => {
         // Strip heavy/internal fields (embedding vector, audit) from response.
-        const {
-          embedding: _embedding,
-          embeddingHash: _embeddingHash,
-          createdBy: _createdBy,
-          updatedBy: _updatedBy,
-          deletedBy: _deletedBy,
-          ...publicJob
-        } = job.toObject();
+        const publicJob = this.toPublicRecommendedJob(job);
         return {
           ...publicJob,
           recommendation: {
@@ -158,5 +148,42 @@ export class JobRecommendationsService {
         };
       }),
     };
+  }
+
+  private resolveVectorScore(
+    job: JobVectorCandidate,
+    profileEmbedding: number[] | undefined,
+    hasProfileEmbedding: boolean,
+  ): number {
+    if (typeof job._vectorScore === 'number') return job._vectorScore;
+
+    const jobEmbedding = job.embedding;
+    if (
+      hasProfileEmbedding &&
+      profileEmbedding &&
+      jobEmbedding &&
+      jobEmbedding.length > 0
+    ) {
+      return this.embedding.toScore(
+        this.embedding.cosineSimilarity(profileEmbedding, jobEmbedding),
+      );
+    }
+
+    return 0;
+  }
+
+  private toPublicRecommendedJob(job: JobVectorCandidate) {
+    const {
+      embedding: _embedding,
+      embeddingHash: _embeddingHash,
+      createdBy: _createdBy,
+      updatedBy: _updatedBy,
+      deletedBy: _deletedBy,
+      deleted: _deleted,
+      deletedAt: _deletedAt,
+      _vectorScore: _vectorScore,
+      ...publicJob
+    } = job;
+    return publicJob;
   }
 }

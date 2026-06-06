@@ -1,4 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  HealthCheckService,
+  MongooseHealthIndicator,
+} from '@nestjs/terminus';
 import { HealthController } from './health.controller';
 
 describe('HealthController', () => {
@@ -7,6 +11,16 @@ describe('HealthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
+      providers: [
+        {
+          provide: HealthCheckService,
+          useValue: { check: jest.fn() },
+        },
+        {
+          provide: MongooseHealthIndicator,
+          useValue: { pingCheck: jest.fn() },
+        },
+      ],
     }).compile();
 
     controller = module.get<HealthController>(HealthController);

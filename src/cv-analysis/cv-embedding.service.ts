@@ -9,6 +9,7 @@ import {
 /** Constants for the embedding pipeline. */
 export const EMBEDDING_MODEL = 'gemini-embedding-2';
 export const EMBEDDING_DIMS = 768;
+export const EMBEDDING_TEXT_VERSION = 'job-match-v2';
 
 /**
  * Wraps Gemini embedding calls and provides cosine similarity.
@@ -35,7 +36,9 @@ export class CvEmbeddingService {
   computeTextHash(text: string): string {
     return crypto
       .createHash('sha256')
-      .update(`${EMBEDDING_MODEL}:${EMBEDDING_DIMS}\n${text}`)
+      .update(
+        `${EMBEDDING_MODEL}:${EMBEDDING_DIMS}:${EMBEDDING_TEXT_VERSION}\n${text}`,
+      )
       .digest('hex');
   }
 
@@ -90,24 +93,28 @@ export class CvEmbeddingService {
    * Order matters less than content density: skills first, then context.
    */
   buildCvText(extracted: ExtractedCvData): string {
+    const skills = this.joinList(extracted.skills);
+    const locations = this.joinList(extracted.preferredLocations);
     const parts = [
-      extracted.summary || '',
       extracted.desiredJobTitle
-        ? `Desired role: ${extracted.desiredJobTitle}`
+        ? `Target role: ${extracted.desiredJobTitle}`
+        : '',
+      skills ? `Core skills: ${skills}` : '',
+      extracted.desiredSpecialization
+        ? `Target specialization: ${extracted.desiredSpecialization}`
         : '',
       extracted.desiredCategory
-        ? `Desired category: ${extracted.desiredCategory}`
+        ? `Target category: ${extracted.desiredCategory}`
         : '',
-      extracted.desiredSpecialization
-        ? `Desired specialization: ${extracted.desiredSpecialization}`
+      extracted.level ? `Seniority: ${extracted.level}` : '',
+      Number.isFinite(extracted.yearsOfExperience)
+        ? `Experience: ${extracted.yearsOfExperience} years`
         : '',
-      `Skills: ${(extracted.skills || []).join(', ')}`,
-      `Level: ${extracted.level || ''}`,
-      `Education: ${extracted.education || ''}`,
-      `Experience: ${extracted.yearsOfExperience ?? 0} years`,
-      `Locations: ${(extracted.preferredLocations || []).join(', ')}`,
+      locations ? `Preferred locations: ${locations}` : '',
+      extracted.education ? `Education: ${extracted.education}` : '',
+      extracted.summary ? `Summary: ${extracted.summary}` : '',
     ];
-    return parts.filter((p) => p.trim().length > 0).join('. ');
+    return this.compactParts(parts);
   }
 
   /** Same idea for jobs — concatenate the searchable text fields. */
@@ -128,17 +135,18 @@ export class CvEmbeddingService {
     const yoe = job.yearsOfExperience;
     const yoeStr =
       yoe && (yoe.min !== undefined || yoe.max !== undefined)
-        ? `YOE: ${yoe.min ?? 0}-${yoe.max ?? yoe.min ?? 0} years`
-        : '';
+      ? `YOE: ${yoe.min ?? 0}-${yoe.max ?? yoe.min ?? 0} years`
+      : '';
+    const skills = this.joinList(job.skills);
     const parts = [
-      job.name || '',
+      job.name ? `Role: ${job.name}` : '',
+      skills ? `Core skills: ${skills}` : '',
       job.category ? `Category: ${job.category}` : '',
       job.specialization ? `Specialization: ${job.specialization}` : '',
-      `Skills: ${(job.skills || []).join(', ')}`,
-      `Level: ${job.level || ''}`,
+      job.level ? `Seniority: ${job.level}` : '',
       job.jobType ? `JobType: ${job.jobType}` : '',
       job.workMode ? `WorkMode: ${job.workMode}` : '',
-      `Location: ${job.location || ''}`,
+      job.location ? `Location: ${job.location}` : '',
       yoeStr,
       (job.requirements || []).length > 0
         ? `Requirements: ${(job.requirements || []).join('; ')}`
@@ -146,10 +154,23 @@ export class CvEmbeddingService {
       (job.responsibilities || []).length > 0
         ? `Responsibilities: ${(job.responsibilities || []).join('; ')}`
         : '',
-      // Strip HTML and truncate description to avoid blowing token budget.
-      this.stripAndTruncate(job.description || '', 1200),
+      // Keep description as context only; JD arrays above carry stronger signal.
+      this.stripAndTruncate(job.description || '', 800),
     ];
-    return parts.filter((p) => p.trim().length > 0).join('. ');
+    return this.compactParts(parts);
+  }
+
+  private compactParts(parts: string[]): string {
+    return parts
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .join('. ');
+  }
+
+  private joinList(values?: string[]): string {
+    return Array.from(
+      new Set((values || []).map((v) => v?.trim()).filter(Boolean)),
+    ).join(', ');
   }
 
   private stripAndTruncate(html: string, maxLen: number): string {

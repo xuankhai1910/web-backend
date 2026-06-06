@@ -54,6 +54,10 @@ export class CvAnalysis {
   @Prop({ type: [Number], default: [] })
   embedding: number[];
 
+  /** Hash of the text recipe used to generate `embedding`. */
+  @Prop()
+  embeddingHash: string;
+
   @Prop()
   analyzedAt: Date;
 

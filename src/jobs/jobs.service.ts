@@ -21,6 +21,10 @@ import {
   LEVEL_DISTANCE_SCORE,
   LEVEL_ORDER,
 } from 'src/cv-analysis/cv-analysis.constants';
+import {
+  JobVectorCandidate,
+  JobVectorSearchService,
+} from 'src/cv-analysis/job-vector-search.service';
 
 @Injectable()
 export class JobsService {
@@ -50,6 +54,7 @@ export class JobsService {
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
     private embedding: CvEmbeddingService,
+    private jobVectorSearch: JobVectorSearchService,
   ) {}
 
   private buildCountCacheKey(filter: Record<string, unknown>): string {
@@ -169,6 +174,25 @@ export class JobsService {
     return this.embedding.toScore(
       this.embedding.cosineSimilarity(sourceEmbedding, candidateEmbedding),
     );
+  }
+
+  private resolveSimilarSemanticScore(
+    source: { embedding?: number[] },
+    candidate: JobVectorCandidate,
+  ) {
+    if (typeof candidate._vectorScore === 'number') {
+      return candidate._vectorScore;
+    }
+
+    return this.semanticJobSimilarity(source.embedding, candidate.embedding);
+  }
+
+  private getCandidateCompanyId(candidate: JobVectorCandidate) {
+    return (candidate.company as { _id?: unknown } | undefined)?._id;
+  }
+
+  private getCandidateCreatedAt(candidate: JobVectorCandidate) {
+    return candidate.createdAt as string | number | Date | undefined;
   }
 
   private canonicalizeLevel(level?: string): string {
@@ -430,33 +454,38 @@ export class JobsService {
     const skills = job.skills ?? [];
     const companyId = job.company?._id;
 
-    const candidates = await this.jobModel
-      .find({
-        _id: { $ne: jobId },
-        isActive: true,
-        endDate: { $gte: new Date() },
-      })
-      .select('-description -embeddingHash')
-      .lean();
+    const search = await this.jobVectorSearch.findCandidates(job.embedding, {
+      vectorLimit: Math.max(60, limit * 12),
+      numCandidates: 1000,
+      fallbackLimit: 500,
+    });
+    const candidates = search.jobs.filter(
+      (candidate) => String(candidate._id) !== String(jobId),
+    );
+    this.logger.log(
+      `[similar-jobs] job=${jobId} mode=${search.mode} candidates=${candidates.length} limit=${limit}`,
+    );
 
     const skillSet = new Set(skills);
 
     const scoredCandidates = candidates
       .map((candidate) => {
-        const semanticScore = this.semanticJobSimilarity(
-          job.embedding,
-          candidate.embedding,
-        );
+        const semanticScore = this.resolveSimilarSemanticScore(job, candidate);
         const titleScore = Math.max(
           semanticScore >= this.similarEmbeddingThreshold ? semanticScore : 0,
-          this.titleTokenSimilarity(job.name, candidate.name),
+          this.titleTokenSimilarity(job.name, candidate.name as string),
         );
-        const skillOverlap = (candidate.skills ?? []).filter((s) =>
+        const candidateSkills = (candidate.skills ?? []) as string[];
+        const skillOverlap = candidateSkills.filter((s) =>
           skillSet.has(s),
         ).length;
         const sameCompany =
-          String(candidate.company?._id ?? '') === String(companyId);
-        const levelScore = this.levelSimilarity(job.level, candidate.level);
+          String(this.getCandidateCompanyId(candidate) ?? '') ===
+          String(companyId);
+        const levelScore = this.levelSimilarity(
+          job.level,
+          candidate.level as string,
+        );
 
         return { candidate, titleScore, levelScore, skillOverlap, sameCompany };
       })
@@ -476,13 +505,24 @@ export class JobsService {
       if (a.sameCompany !== b.sameCompany) return a.sameCompany ? -1 : 1;
 
       return (
-        new Date(b.candidate.createdAt ?? 0).getTime() -
-        new Date(a.candidate.createdAt ?? 0).getTime()
+        new Date(this.getCandidateCreatedAt(b.candidate) ?? 0).getTime() -
+        new Date(this.getCandidateCreatedAt(a.candidate) ?? 0).getTime()
       );
     });
 
     return scoredCandidates.slice(0, limit).map(({ candidate }) => {
-      const { embedding, ...result } = candidate;
+      const {
+        embedding: _embedding,
+        embeddingHash: _embeddingHash,
+        description: _description,
+        createdBy: _createdBy,
+        updatedBy: _updatedBy,
+        deletedBy: _deletedBy,
+        deleted: _deleted,
+        deletedAt: _deletedAt,
+        _vectorScore: _vectorScore,
+        ...result
+      } = candidate;
       return result;
     });
   }

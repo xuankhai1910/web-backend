@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed:kaggle": "ts-node -r tsconfig-paths/register src/databases/seed-kaggle.ts"
+    "seed:kaggle": "ts-node -r tsconfig-paths/register src/databases/seed-kaggle.ts",
+    "audit:embeddings": "ts-node -r tsconfig-paths/register src/databases/seed-audit-all.ts",
+    "reembed:jobs": "ts-node -r tsconfig-paths/register src/databases/reembed-stale-jobs.ts"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
@@ -103,6 +105,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
