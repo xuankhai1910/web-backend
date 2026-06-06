@@ -313,8 +313,10 @@ const CATEGORY_ADJACENCY: Record<string, number> = {
     JOB_CATEGORIES.ARTIFICIAL_INTELLIGENCE,
     JOB_CATEGORIES.DATA_SCIENCE,
   )]: 0.55,
-  [categoryPair(JOB_CATEGORIES.SOFTWARE_ENGINEERING, JOB_CATEGORIES.DATA_SCIENCE)]:
-    0.3,
+  [categoryPair(
+    JOB_CATEGORIES.SOFTWARE_ENGINEERING,
+    JOB_CATEGORIES.DATA_SCIENCE,
+  )]: 0.3,
   [categoryPair(
     JOB_CATEGORIES.SOFTWARE_ENGINEERING,
     JOB_CATEGORIES.IT_INFRASTRUCTURE,
@@ -335,20 +337,30 @@ const CATEGORY_ADJACENCY: Record<string, number> = {
     JOB_CATEGORIES.IT_PROJECT_MANAGEMENT,
     JOB_CATEGORIES.SOFTWARE_ENGINEERING,
   )]: 0.25,
-  [categoryPair(JOB_CATEGORIES.IT_MANAGEMENT, JOB_CATEGORIES.SOFTWARE_ENGINEERING)]:
-    0.5,
-  [categoryPair(JOB_CATEGORIES.IT_MANAGEMENT, JOB_CATEGORIES.IT_INFRASTRUCTURE)]:
-    0.45,
-  [categoryPair(JOB_CATEGORIES.SOFTWARE_DESIGN, JOB_CATEGORIES.PRODUCT_MANAGEMENT)]:
-    0.4,
-  [categoryPair(JOB_CATEGORIES.SOFTWARE_DESIGN, JOB_CATEGORIES.GAME_DEVELOPMENT)]:
-    0.35,
+  [categoryPair(
+    JOB_CATEGORIES.IT_MANAGEMENT,
+    JOB_CATEGORIES.SOFTWARE_ENGINEERING,
+  )]: 0.5,
+  [categoryPair(
+    JOB_CATEGORIES.IT_MANAGEMENT,
+    JOB_CATEGORIES.IT_INFRASTRUCTURE,
+  )]: 0.45,
+  [categoryPair(
+    JOB_CATEGORIES.SOFTWARE_DESIGN,
+    JOB_CATEGORIES.PRODUCT_MANAGEMENT,
+  )]: 0.4,
+  [categoryPair(
+    JOB_CATEGORIES.SOFTWARE_DESIGN,
+    JOB_CATEGORIES.GAME_DEVELOPMENT,
+  )]: 0.35,
   [categoryPair(
     JOB_CATEGORIES.SOFTWARE_ENGINEERING,
     JOB_CATEGORIES.GAME_DEVELOPMENT,
   )]: 0.35,
-  [categoryPair(JOB_CATEGORIES.SALES_IT, JOB_CATEGORIES.PRODUCT_MANAGEMENT)]: 0.25,
-  [categoryPair(JOB_CATEGORIES.OTHER_IT, JOB_CATEGORIES.PRODUCT_MANAGEMENT)]: 0.3,
+  [categoryPair(JOB_CATEGORIES.SALES_IT, JOB_CATEGORIES.PRODUCT_MANAGEMENT)]:
+    0.25,
+  [categoryPair(JOB_CATEGORIES.OTHER_IT, JOB_CATEGORIES.PRODUCT_MANAGEMENT)]:
+    0.3,
   [categoryPair(JOB_CATEGORIES.OTHER_IT, JOB_CATEGORIES.SOFTWARE_ENGINEERING)]:
     0.3,
 };
@@ -365,10 +377,22 @@ export function inferRole(input: RoleInput): InferredRole {
     input.specialization ?? '',
   );
   const textGroup = groupFromText(text);
-  const group =
+
+  // Refine a generic/empty specialization via free-text — but only WITHIN the
+  // same category. Otherwise an IT-Infra keyword inside, say, an "AI Engineer
+  // (Python, Docker)" job would flip its group to `devops` and make a
+  // different-category job look identical to a DevOps candidate's role. When no
+  // category is known (e.g. a CV with only a title), text is the only signal,
+  // so it's used as-is.
+  const textGroupInCategory: RoleGroup | null =
+    textGroup && (!category || CATEGORY_BY_GROUP[textGroup] === category)
+      ? textGroup
+      : null;
+
+  const group: RoleGroup =
     (specializationGroup && !isGenericGroup(specializationGroup)
       ? specializationGroup
-      : textGroup || specializationGroup) ??
+      : textGroupInCategory || specializationGroup) ??
     DEFAULT_GROUP_BY_CATEGORY[category] ??
     'unknown';
 
@@ -378,10 +402,7 @@ export function inferRole(input: RoleInput): InferredRole {
   };
 }
 
-export function roleCompatibilityScore(candidate: RoleInput, job: RoleInput): number {
-  const cvRole = inferRole(candidate);
-  const jobRole = inferRole(job);
-
+function scoreFromRoles(cvRole: InferredRole, jobRole: InferredRole): number {
   if (cvRole.group === 'unknown' && jobRole.group === 'unknown') return 0.5;
   if (cvRole.group === 'unknown' || jobRole.group === 'unknown') return 0.4;
   if (cvRole.group === jobRole.group) return 1;
@@ -391,7 +412,72 @@ export function roleCompatibilityScore(candidate: RoleInput, job: RoleInput): nu
 
   if (cvRole.category && cvRole.category === jobRole.category) return 0.45;
 
-  return CATEGORY_ADJACENCY[categoryPair(cvRole.category, jobRole.category)] ?? 0.08;
+  return (
+    CATEGORY_ADJACENCY[categoryPair(cvRole.category, jobRole.category)] ?? 0.08
+  );
+}
+
+export function roleCompatibilityScore(
+  candidate: RoleInput,
+  job: RoleInput,
+): number {
+  return scoreFromRoles(inferRole(candidate), inferRole(job));
+}
+
+/**
+ * Minimum `roleCompatibilityScore` for a job to count as "related" to the
+ * candidate when it is NOT in the same category. 0.45 == the same-category
+ * floor, so this keeps strongly-related cross-category roles (e.g.
+ * devops→cloud 0.85, system→network 0.55, BA↔PM 0.75) while dropping weak
+ * cross-domain links (e.g. devops→AI 0.08, SE↔IT-infra adjacency 0.30).
+ */
+export const RELATED_ROLE_FLOOR = 0.45;
+
+export interface RoleRelation {
+  roleScore: number;
+  /** Same fine-grained role group (e.g. both `devops`). */
+  sameGroup: boolean;
+  /** Same top-level IT category (e.g. both "IT Infrastructure and Operations"). */
+  sameCategory: boolean;
+  /** Same category OR a strongly-related cross-category role. */
+  related: boolean;
+  /**
+   * Ranking tier (higher = closer to the candidate's target role):
+   *   3 = same category AND same group / specialization
+   *   2 = same category, different sub-role
+   *   1 = related (strong cross-category link)
+   *   0 = unrelated
+   */
+  tier: 0 | 1 | 2 | 3;
+}
+
+/**
+ * Classify how a job relates to the candidate's target role — used by the
+ * recommender to filter out unrelated categories and rank same-category /
+ * same-specialization jobs first. Reuses the same group inference and scoring
+ * as `roleCompatibilityScore` so the breakdown stays consistent.
+ */
+export function classifyRoleRelation(
+  candidate: RoleInput,
+  job: RoleInput,
+): RoleRelation {
+  const cvRole = inferRole(candidate);
+  const jobRole = inferRole(job);
+  const roleScore = scoreFromRoles(cvRole, jobRole);
+
+  const sameGroup =
+    cvRole.group !== 'unknown' && cvRole.group === jobRole.group;
+  const sameCategory =
+    !!cvRole.category &&
+    !!jobRole.category &&
+    cvRole.category === jobRole.category;
+  const related = sameCategory || roleScore >= RELATED_ROLE_FLOOR;
+  // Top tier requires same category AND same fine-grained group, so a
+  // cross-category group collision can never reach tier 3.
+  const tier: RoleRelation['tier'] =
+    sameGroup && sameCategory ? 3 : sameCategory ? 2 : related ? 1 : 0;
+
+  return { roleScore, sameGroup, sameCategory, related, tier };
 }
 
 export function taxonomyCoverage(): Array<{
@@ -420,7 +506,8 @@ function groupFromSpecialization(
       if (s.includes('backend')) return 'backend';
       if (s.includes('frontend')) return 'frontend';
       if (s.includes('mobile')) return 'mobile';
-      if (s.includes('fullstack') || s.includes('full stack')) return 'fullstack';
+      if (s.includes('fullstack') || s.includes('full stack'))
+        return 'fullstack';
       if (s.includes('blockchain')) return 'blockchain';
       return 'software_general';
     case JOB_CATEGORIES.SOFTWARE_TESTING:
@@ -453,7 +540,8 @@ function groupFromSpecialization(
       if (s.includes('chien luoc') || s.includes('phan tich')) {
         return 'security_strategy';
       }
-      if (s.includes('quan tri') || s.includes('van hanh')) return 'security_ops';
+      if (s.includes('quan tri') || s.includes('van hanh'))
+        return 'security_ops';
       if (s.includes('tuan thu') || s.includes('kiem toan')) {
         return 'security_compliance';
       }
@@ -491,7 +579,8 @@ function groupFromSpecialization(
       return 'uiux';
     case JOB_CATEGORIES.PRODUCT_MANAGEMENT:
       if (s.includes('business analyst')) return 'business_analyst';
-      if (s.includes('analyst') || s.includes('research')) return 'product_analyst';
+      if (s.includes('analyst') || s.includes('research'))
+        return 'product_analyst';
       return 'product_manager';
     case JOB_CATEGORIES.GAME_DEVELOPMENT:
       if (s.includes('concept')) return 'concept_artist';
@@ -500,7 +589,11 @@ function groupFromSpecialization(
       if (s.includes('khac') || s.includes('other')) return 'game_other';
       return 'game_developer';
     case JOB_CATEGORIES.SALES_IT:
-      if (s.includes('domain') || s.includes('hosting') || s.includes('server')) {
+      if (
+        s.includes('domain') ||
+        s.includes('hosting') ||
+        s.includes('server')
+      ) {
         return 'hosting_sales';
       }
       if (s.includes('khac') || s.includes('other')) return 'sales_other';
@@ -508,7 +601,8 @@ function groupFromSpecialization(
     case JOB_CATEGORIES.OTHER_IT:
       if (s.includes('consultant')) return 'it_consultant';
       if (s.includes('gis')) return 'gis';
-      if (s.includes('ban hang') || s.includes('sales')) return 'technical_sales';
+      if (s.includes('ban hang') || s.includes('sales'))
+        return 'technical_sales';
       return 'other_it';
     default:
       return null;
@@ -518,34 +612,50 @@ function groupFromSpecialization(
 function groupFromText(text: string): RoleGroup | null {
   if (!text) return null;
   if (hasAny(text, ['fullstack', 'full stack'])) return 'fullstack';
-  if (hasAny(text, ['backend', 'nodejs', 'nestjs', 'express', 'spring', 'aspnet'])) {
+  if (
+    hasAny(text, ['backend', 'nodejs', 'nestjs', 'express', 'spring', 'aspnet'])
+  ) {
     return 'backend';
   }
-  if (hasAny(text, ['frontend', 'reactjs', 'vuejs', 'angular', 'html', 'css'])) {
+  if (
+    hasAny(text, ['frontend', 'reactjs', 'vuejs', 'angular', 'html', 'css'])
+  ) {
     return 'frontend';
   }
   if (hasAny(text, ['mobile', 'android', 'ios', 'flutter', 'react native'])) {
     return 'mobile';
   }
-  if (hasAny(text, ['unity', 'unreal', 'game developer'])) return 'game_developer';
+  if (hasAny(text, ['unity', 'unreal', 'game developer']))
+    return 'game_developer';
   if (hasAny(text, ['business analyst', 'requirement', 'user story', 'jira'])) {
     return 'business_analyst';
   }
-  if (hasAny(text, ['product owner', 'product manager'])) return 'product_manager';
+  if (hasAny(text, ['product owner', 'product manager']))
+    return 'product_manager';
   if (hasAny(text, ['devops', 'kubernetes', 'docker', 'terraform', 'ci/cd'])) {
     return 'devops';
   }
   if (hasAny(text, ['cloud', 'aws', 'azure', 'gcp'])) return 'cloud';
   if (hasAny(text, ['qa', 'tester', 'selenium', 'playwright'])) {
-    return text.includes('automation') || hasAny(text, ['selenium', 'playwright'])
+    return text.includes('automation') ||
+      hasAny(text, ['selenium', 'playwright'])
       ? 'test_automation'
       : 'qa';
   }
-  if (hasAny(text, ['data engineer', 'airflow', 'spark'])) return 'data_engineer';
-  if (hasAny(text, ['data scientist', 'machine learning', 'pytorch', 'tensorflow'])) {
+  if (hasAny(text, ['data engineer', 'airflow', 'spark']))
+    return 'data_engineer';
+  if (
+    hasAny(text, [
+      'data scientist',
+      'machine learning',
+      'pytorch',
+      'tensorflow',
+    ])
+  ) {
     return 'data_scientist';
   }
-  if (hasAny(text, ['data analyst', 'power bi', 'tableau'])) return 'data_analyst';
+  if (hasAny(text, ['data analyst', 'power bi', 'tableau']))
+    return 'data_analyst';
   if (hasAny(text, ['security', 'cyber', 'pentest'])) return 'security_general';
   if (hasAny(text, ['ui/ux', 'figma', 'interaction designer'])) return 'uiux';
   return null;

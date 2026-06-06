@@ -37,7 +37,9 @@ export class JobVectorSearchService {
   isEnabled(): boolean {
     const value = this.config.get<string>('MONGODB_VECTOR_SEARCH_ENABLED');
     return ['1', 'true', 'yes', 'on'].includes(
-      String(value ?? '').trim().toLowerCase(),
+      String(value ?? '')
+        .trim()
+        .toLowerCase(),
     );
   }
 
@@ -60,7 +62,10 @@ export class JobVectorSearchService {
     }
 
     if (!this.isUsableEmbedding(queryEmbedding)) {
-      return this.findFallbackCandidates('empty_query_embedding', fallbackLimit);
+      return this.findFallbackCandidates(
+        'empty_query_embedding',
+        fallbackLimit,
+      );
     }
 
     const vectorLimit = this.toPositiveInt(
@@ -158,6 +163,29 @@ export class JobVectorSearchService {
         },
       },
     ];
+  }
+
+  /**
+   * Fetch active jobs of a single category, regardless of vector similarity.
+   * The vector top-N (`findCandidates`) is category-blind and can starve a
+   * candidate's own category, so the recommender merges these in to guarantee
+   * same-category coverage. Returned docs carry their `embedding` so the caller
+   * can still compute a cosine vector score for ranking.
+   */
+  async findActiveByCategory(
+    category: string,
+    limit = RECOMMEND_FALLBACK_CANDIDATE_LIMIT,
+  ): Promise<JobVectorCandidate[]> {
+    if (!category) return [];
+    const jobs = await this.jobModel
+      .find({
+        category,
+        isActive: true,
+        endDate: { $gte: new Date() },
+      })
+      .limit(limit)
+      .lean();
+    return jobs as unknown as JobVectorCandidate[];
   }
 
   private async findFallbackCandidates(

@@ -62,6 +62,8 @@ describe('CvAnalysisService recommendations', () => {
         mode: 'vector',
         jobs,
       }),
+      // Category-first augmentation: no extra same-category jobs in this test.
+      findActiveByCategory: jest.fn().mockResolvedValue([]),
     };
 
     const service = new CvAnalysisService(

@@ -39,6 +39,7 @@ import {
   SPECIALIZATIONS_BY_CATEGORY,
 } from '../jobs/jobs.constants';
 import type { JobCategory } from '../jobs/jobs.constants';
+import { mapTitleToTaxonomy } from '../jobs/title-taxonomy';
 import { CvEmbeddingService } from '../cv-analysis/cv-embedding.service';
 import { resolveProvince } from './vietnam-provinces';
 
@@ -66,197 +67,9 @@ function parseArgs(): CliArgs {
 }
 
 // ─── Title → (category, specialization) mapping ──────────────────────────────
-// Each entry is matched in order; first hit wins. Patterns are Vietnamese-aware.
-const TITLE_RULES: Array<{
-  pattern: RegExp;
-  category: string;
-  specialization: string;
-}> = [
-  // Game (check before SE because "Unity Developer" should map to Game)
-  {
-    pattern:
-      /unity|unreal|game developer|game dev|game programmer|game tester/i,
-    category: 'Game Development',
-    specialization: 'Game Developer',
-  },
-  // Mobile (check before Frontend — "react native" → mobile, "reactjs" → frontend)
-  {
-    pattern:
-      /mobile (developer|engineer|app)|android (developer|app)|\bios (developer|engineer)|flutter|react native|kotlin developer|swift developer/i,
-    category: 'Software Engineering',
-    specialization: 'Mobile Developer',
-  },
-  // Frontend
-  {
-    pattern:
-      /front[\s-]?end|reactjs|react\.js|vuejs|vue\.js|angular|nextjs|next\.js|shopify/i,
-    category: 'Software Engineering',
-    specialization: 'Frontend Developer',
-  },
-  // Fullstack
-  {
-    pattern: /full[\s-]?stack/i,
-    category: 'Software Engineering',
-    specialization: 'Fullstack Developer',
-  },
-  // Backend (broad — many VN titles)
-  {
-    pattern:
-      /back[\s-]?end|node\.?js|java (developer|spring|backend)|\.net|c#\s*developer|php developer|django|laravel|golang|go developer|ruby on rails|python (developer|backend)|software engineer.*node|senior java/i,
-    category: 'Software Engineering',
-    specialization: 'Backend Developer',
-  },
-  // Embedded
-  {
-    pattern: /embedded software|firmware/i,
-    category: 'Software Engineering',
-    specialization: 'Software Engineer',
-  },
-  // Testing (Vietnamese: "Kiểm Thử", "Tester", "QA", "QC")
-  {
-    pattern:
-      /tester|\bqa\b|\bqc\b|test automation|sdet|quality (engineer|assurance|control)|kiểm thử/i,
-    category: 'Software Testing',
-    specialization: 'QA Engineer',
-  },
-  // AI
-  {
-    pattern:
-      /machine learning|\bml engineer|deep learning|nlp|computer vision/i,
-    category: 'Artificial Intelligence',
-    specialization: 'AI Engineer',
-  },
-  // Data
-  {
-    pattern: /data engineer|etl|spark|hadoop|data pipeline/i,
-    category: 'Data Science',
-    specialization: 'Data Engineer',
-  },
-  {
-    pattern: /data scientist|data science/i,
-    category: 'Data Science',
-    specialization: 'Data Scientist',
-  },
-  {
-    pattern: /data analyst|business intelligence|\bbi\b/i,
-    category: 'Data Science',
-    specialization: 'Data Analyst',
-  },
-  // Infra (Vietnamese: "IT Helpdesk", "IT Support", "Quản trị hệ thống")
-  {
-    pattern: /devops|\bsre\b|site reliability/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'DevOps Engineer',
-  },
-  {
-    pattern: /cloud engineer|aws engineer|azure engineer|gcp engineer/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'Cloud Engineer',
-  },
-  {
-    pattern: /it helpdesk|it support|hỗ trợ kỹ thuật|customer support.*it/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'IT Helpdesk/IT support',
-  },
-  {
-    pattern:
-      /system admin|sysadmin|linux admin|quản trị hệ thống|it system|chuyên viên it/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'System Administrator',
-  },
-  {
-    pattern: /network engineer|\bccna\b|\bccnp\b|quản trị mạng/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'Network Engineer',
-  },
-  {
-    pattern: /database admin|\bdba\b/i,
-    category: 'IT Infrastructure and Operations',
-    specialization: 'Database Administrator (DBA)',
-  },
-  // Security
-  {
-    pattern:
-      /security|pentest|cybersecurity|\bsoc\b analyst|an ninh mạng|bảo mật/i,
-    category: 'Information Security',
-    specialization: 'Chuyên viên IT Security',
-  },
-  // IoT / Embedded
-  {
-    pattern: /\biot\b|embedded engineer|hardware engineer|lập trình nhúng/i,
-    category: 'IoT/Embedded Engineer',
-    specialization: 'Embedded Engineer/Lập trình nhúng',
-  },
-  // BA / Product (Vietnamese: "Phân Tích Nghiệp Vụ")
-  {
-    pattern:
-      /business analyst|\bba\b|phân tích nghiệp vụ|chuyên viên ba|business data analyst/i,
-    category: 'Product Management',
-    specialization: 'Business Analyst (Phân tích nghiệp vụ)',
-  },
-  {
-    pattern: /scrum master|agile coach/i,
-    category: 'IT Project Management',
-    specialization: 'Scrum Master',
-  },
-  {
-    pattern: /project manager|\bpm\b technical|technical pm/i,
-    category: 'IT Project Management',
-    specialization: 'IT Project Manager',
-  },
-  {
-    pattern: /product manager|product owner/i,
-    category: 'Product Management',
-    specialization: 'Product Owner/Product Manager',
-  },
-  // Design
-  {
-    pattern: /ux|ui|product designer/i,
-    category: 'Software Design',
-    specialization: 'UI/UX Design',
-  },
-  // Game
-  {
-    pattern: /game developer|unity developer|unreal developer/i,
-    category: 'Game Development',
-    specialization: 'Game Developer',
-  },
-  // Sales IT (Vietnamese: "IT Sales", "Kinh Doanh IT", "Kinh Doanh Phần Mềm")
-  {
-    pattern:
-      /sales engineer|presales|solution consultant|it sales|kinh doanh.*(it|phần mềm|software|công nghệ)|nhân viên kinh doanh.*(it|telecom)/i,
-    category: 'Sales IT Phần mềm',
-    specialization: 'Kinh doanh phần mềm',
-  },
-  // Generic SE catch-all (must be near the end)
-  {
-    pattern: /software engineer|developer|lập trình viên|kỹ sư phần mềm/i,
-    category: 'Software Engineering',
-    specialization: 'Software Engineer',
-  },
-  // Generic IT catch-all
-  {
-    pattern:
-      /it fresher|công nghệ thông tin|cntt|thực tập sinh.*(it|cntt|công nghệ)/i,
-    category: 'Công nghệ thông tin khác',
-    specialization: 'Chuyên môn Công nghệ thông tin khác',
-  },
-];
-
-function mapTitleToTaxonomy(title: string): {
-  category: string;
-  specialization: string;
-} {
-  for (const rule of TITLE_RULES) {
-    if (rule.pattern.test(title)) {
-      return { category: rule.category, specialization: rule.specialization };
-    }
-  }
-  return {
-    category: 'Công nghệ thông tin khác',
-    specialization: 'Chuyên môn Công nghệ thông tin khác',
-  };
-}
+// Shared, name-driven taxonomy classifier (see src/jobs/title-taxonomy.ts).
+// `mapTitleToTaxonomy` returns the generic "other IT" bucket when no rule is
+// confident — kept in sync with the DB remap script for consistent results.
 
 // ─── Salary parsing — handles TopCV/ITviec Vietnamese formats ────────────────
 // Examples:
@@ -480,7 +293,7 @@ async function main() {
     relax_quotes: true,
     relax_column_count: true,
     trim: true,
-  }) as Record<string, string>[];
+  });
   logger.log(`Parsed ${rows.length} CSV rows`);
 
   // ── Load enrichment caches (Strategy 1: TopCV crawler) ──
@@ -566,7 +379,7 @@ async function main() {
     const existing = await companyModel.findOne({ name: displayName }).lean();
     if (existing) {
       const entry = {
-        _id: existing._id as Types.ObjectId,
+        _id: existing._id,
         name: displayName,
         logo: existing.logo || enriched?.logo || '',
       };
@@ -592,7 +405,7 @@ async function main() {
       phone: '',
     });
     const entry = {
-      _id: doc._id as Types.ObjectId,
+      _id: doc._id,
       name: displayName,
       logo: enriched?.logo || '',
     };
@@ -746,7 +559,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

@@ -1,5 +1,6 @@
 import { JOB_CATEGORIES } from 'src/jobs/jobs.constants';
 import {
+  classifyRoleRelation,
   inferRole,
   roleCompatibilityScore,
   taxonomyCoverage,
@@ -7,7 +8,9 @@ import {
 
 describe('roleCompatibilityScore', () => {
   it('classifies every configured backend specialization', () => {
-    const uncovered = taxonomyCoverage().filter((item) => item.group === 'unknown');
+    const uncovered = taxonomyCoverage().filter(
+      (item) => item.group === 'unknown',
+    );
     expect(uncovered).toEqual([]);
   });
 
@@ -106,5 +109,60 @@ describe('roleCompatibilityScore', () => {
         skills: ['nodejs'],
       }).group,
     ).toBe('backend');
+  });
+});
+
+describe('classifyRoleRelation — category-first ranking for a DevOps CV', () => {
+  const devopsCv = {
+    category: JOB_CATEGORIES.IT_INFRASTRUCTURE,
+    specialization: 'DevOps Engineer',
+    title: 'Senior DevOps Engineer',
+    skills: ['docker', 'kubernetes', 'aws', 'terraform'],
+  };
+  const job = (category: string, specialization: string) => ({
+    category,
+    specialization,
+    title: specialization,
+    skills: [],
+  });
+
+  it('ranks the same specialization in the top tier', () => {
+    const rel = classifyRoleRelation(
+      devopsCv,
+      job(JOB_CATEGORIES.IT_INFRASTRUCTURE, 'DevOps Engineer'),
+    );
+    expect(rel.sameGroup).toBe(true);
+    expect(rel.tier).toBe(3);
+    expect(rel.related).toBe(true);
+  });
+
+  it('keeps a same-category, different sub-role in tier 2', () => {
+    const network = classifyRoleRelation(
+      devopsCv,
+      job(JOB_CATEGORIES.IT_INFRASTRUCTURE, 'Network Engineer'),
+    );
+    expect(network.sameCategory).toBe(true);
+    expect(network.sameGroup).toBe(false);
+    expect(network.tier).toBe(2);
+    expect(network.related).toBe(true);
+  });
+
+  it('drops an unrelated category (AI) — not related, tier 0', () => {
+    const ai = classifyRoleRelation(
+      devopsCv,
+      job(JOB_CATEGORIES.ARTIFICIAL_INTELLIGENCE, 'AI Engineer'),
+    );
+    expect(ai.sameCategory).toBe(false);
+    expect(ai.related).toBe(false);
+    expect(ai.tier).toBe(0);
+  });
+
+  it('drops a weakly-adjacent cross-category role (Backend) below the floor', () => {
+    const backend = classifyRoleRelation(
+      devopsCv,
+      job(JOB_CATEGORIES.SOFTWARE_ENGINEERING, 'Backend Developer'),
+    );
+    expect(backend.related).toBe(false);
+    expect(backend.tier).toBe(0);
   });
 });

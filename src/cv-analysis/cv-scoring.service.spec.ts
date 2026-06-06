@@ -175,4 +175,41 @@ describe('CvScoringService title matching', () => {
     expect(fullstack.score).toBeGreaterThan(game.score);
     expect(game.score).toBeLessThan(0.7);
   });
+
+  it('does not penalise a job that declares no skills (skill signal is N/A)', () => {
+    const cv = {
+      skills: ['kubernetes', 'terraform', 'aws', 'docker'],
+      level: 'SENIOR',
+      yearsOfExperience: 5,
+      desiredJobTitle: 'DevOps Engineer',
+      desiredCategory: 'IT Infrastructure and Operations',
+      desiredSpecialization: 'DevOps Engineer',
+      education: '',
+      preferredLocations: ['Ha Noi'],
+      summary: '',
+    };
+    const baseJob = {
+      name: 'Senior System Engineer (Cloud)',
+      category: 'IT Infrastructure and Operations',
+      specialization: 'System Engineer',
+      level: 'SENIOR',
+      location: 'Ha Noi',
+    };
+
+    const noSkills = service.computeScore(cv, { ...baseJob, skills: [] }, 0.9);
+    // Reported as 0 for the bar, but the 0.25 weight is redistributed — a strong
+    // role/level/location/vector match is no longer capped near 50%.
+    expect(noSkills.breakdown.skillScore).toBe(0);
+    expect(noSkills.score).toBeGreaterThan(0.55);
+
+    // A job that DOES list skills but shares none with the CV is a real
+    // mismatch and must score lower than the unmeasurable (N/A) case.
+    const mismatched = service.computeScore(
+      cv,
+      { ...baseJob, skills: ['java', 'spring', 'php'] },
+      0.9,
+    );
+    expect(mismatched.breakdown.skillScore).toBe(0);
+    expect(mismatched.score).toBeLessThan(noSkills.score);
+  });
 });

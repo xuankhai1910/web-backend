@@ -124,9 +124,18 @@ export class CvScoringService {
     return a === b;
   }
 
-  /** matched_job_skills / total_job_skills. */
-  skillSimilarity(cvSkills: string[], jobSkills: string[]): number {
-    if (!jobSkills?.length || !cvSkills?.length) return 0;
+  /**
+   * matched_job_skills / total_job_skills.
+   *
+   * Returns `null` when the JOB declares no skills — overlap is then
+   * unmeasurable, so the caller treats the signal as N/A and redistributes its
+   * weight instead of scoring a misleading 0 (more than half the seeded jobs
+   * list no skills, so a hard 0 would cap every otherwise-perfect match). A job
+   * that DOES list skills but shares none with the CV still returns 0.
+   */
+  skillSimilarity(cvSkills: string[], jobSkills: string[]): number | null {
+    if (!jobSkills?.length) return null;
+    if (!cvSkills?.length) return 0;
     let matched = 0;
     for (const js of jobSkills) {
       if (cvSkills.some((cs) => this.isSkillMatch(cs, js))) matched++;
@@ -275,7 +284,10 @@ export class CvScoringService {
     job: ScorableJob,
     vectorScore = 0,
   ): ScoreResult {
-    const skillScore = this.skillSimilarity(extracted.skills, job.skills || []);
+    const skillScoreRaw = this.skillSimilarity(
+      extracted.skills,
+      job.skills || [],
+    );
     const titleScoreRaw = this.titleMatchScore(
       extracted.skills,
       job.name || '',
@@ -310,11 +322,16 @@ export class CvScoringService {
     // Keep the denominator stable. Generic titles get neutral title signals
     // rather than redistributing their weight to level/location/vector.
     const contributions: Array<{ weight: number; score: number }> = [
-      { weight: w.skill, score: skillScore },
       { weight: w.role, score: roleScore },
       { weight: w.level, score: levelScore },
       { weight: w.location, score: locationScore },
     ];
+    // Skill only counts when the job actually lists required skills. A skill-less
+    // posting makes overlap unmeasurable → drop the weight (redistribute) instead
+    // of scoring 0, which would otherwise cap every match against such a job.
+    if (skillScoreRaw !== null) {
+      contributions.push({ weight: w.skill, score: skillScoreRaw });
+    }
     if (useHybrid) {
       contributions.push({ weight: HYBRID_WEIGHTS.vector, score: vectorScore });
     }
@@ -338,7 +355,9 @@ export class CvScoringService {
       score: Math.round(score * 100) / 100,
       matchedSkills: this.getMatchedSkills(extracted.skills, job.skills || []),
       breakdown: {
-        skillScore: Math.round(skillScore * 100) / 100,
+        // 0 for display when N/A (job lists no skills) — the weight has already
+        // been redistributed out of the final score above.
+        skillScore: Math.round((skillScoreRaw ?? 0) * 100) / 100,
         // Surface 0 to clients when N/A — UI displays a neutral bar; the
         // weight has already been redistributed in the final `score` above.
         titleScore: Math.round((titleScoreRaw ?? 0) * 100) / 100,

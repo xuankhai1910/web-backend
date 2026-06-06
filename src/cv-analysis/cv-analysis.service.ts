@@ -42,6 +42,7 @@ import {
   JobVectorCandidate,
   JobVectorSearchService,
 } from './job-vector-search.service';
+import { classifyRoleRelation, inferRole } from './role-compatibility';
 
 /** Hard cap on recommendation results returned to the client. */
 const MAX_RECOMMEND_LIMIT = 50;
@@ -312,10 +313,38 @@ export class CvAnalysisService {
     const cvEmbedding = (analysis as any).embedding as number[] | undefined;
     const hasCvEmbedding = !!cvEmbedding && cvEmbedding.length > 0;
 
+    // The candidate's target role drives category relevance. When it can be
+    // inferred (group !== 'unknown'), we (a) guarantee same-category jobs are in
+    // the pool and (b) drop unrelated categories. Results are then ranked purely
+    // by match score so the list reads high→low by the percentage shown on the
+    // card. Falls back to plain score ranking when the role is unknown.
+    const cvRoleInput = {
+      category: extracted.desiredCategory,
+      specialization: extracted.desiredSpecialization,
+      title: extracted.desiredJobTitle,
+      skills: extracted.skills,
+    };
+    const cvRole = inferRole(cvRoleInput);
+    const categoryFirst = cvRole.group !== 'unknown';
+
     const search = await this.jobVectorSearch.findCandidates(cvEmbedding);
-    const candidateJobs = search.jobs;
+    // Merge vector candidates with every active job of the CV's own category so
+    // same-category jobs are never starved by the category-blind vector top-N.
+    const byId = new Map<string, JobVectorCandidate>();
+    for (const job of search.jobs) byId.set(String(job._id), job);
+    if (categoryFirst && cvRole.category) {
+      const sameCategory = await this.jobVectorSearch.findActiveByCategory(
+        cvRole.category,
+      );
+      for (const job of sameCategory) {
+        const id = String(job._id);
+        if (!byId.has(id)) byId.set(id, job);
+      }
+    }
+    const candidateJobs = [...byId.values()];
     this.logger.log(
-      `[recommend-jobs] mode=${search.mode} candidates=${candidateJobs.length} limit=${safeLimit}`,
+      `[recommend-jobs] mode=${search.mode} categoryFirst=${categoryFirst} ` +
+        `cat=${cvRole.category || '-'} candidates=${candidateJobs.length} limit=${safeLimit}`,
     );
 
     if (candidateJobs.length === 0) {
@@ -332,8 +361,15 @@ export class CvAnalysisService {
           cvEmbedding,
           hasCvEmbedding,
         );
+        const relation = classifyRoleRelation(cvRoleInput, {
+          category: job.category as string | undefined,
+          specialization: job.specialization as string | undefined,
+          title: job.name as string | undefined,
+          skills: job.skills as string[] | undefined,
+        });
         return {
           job,
+          relation,
           ...this.scoring.computeScore(
             extracted,
             job as ScorableJob,
@@ -341,7 +377,18 @@ export class CvAnalysisService {
           ),
         };
       })
-      .filter((sj) => this.scoring.passesThreshold(sj.breakdown))
+      .filter((sj) => {
+        // Hard seniority gate always applies (unchanged).
+        if (sj.breakdown.levelScore <= 0) return false;
+        // Category relevance is enforced HERE (drops unrelated categories such
+        // as AI jobs for a DevOps CV), so the ordering below can be a clean
+        // match-percentage sort without mixing in off-topic roles.
+        if (categoryFirst) return sj.relation.related;
+        return this.scoring.passesThreshold(sj.breakdown);
+      })
+      // Rank purely by match score (descending) — the same percentage the FE
+      // shows on each card — so the list reads high→low. Unrelated categories
+      // were already removed by the filter above.
       .sort((a, b) => b.score - a.score)
       .slice(0, safeLimit);
 
@@ -401,7 +448,8 @@ export class CvAnalysisService {
     });
     const hasEmbedding =
       ((analysis as any)?.embedding as number[] | undefined)?.length ?? 0;
-    const usable = !!analysis && analysis.analyzedBy === 'ai' && hasEmbedding > 0;
+    const usable =
+      !!analysis && analysis.analyzedBy === 'ai' && hasEmbedding > 0;
     if (usable) {
       this.logger.log(
         `[HR-match] resume=${resumeId} → CACHE HIT: tái dùng phân tích AI đã có ` +
@@ -647,7 +695,12 @@ export class CvAnalysisService {
     if (typeof job._vectorScore === 'number') return job._vectorScore;
 
     const jobEmbedding = job.embedding;
-    if (hasCvEmbedding && cvEmbedding && jobEmbedding && jobEmbedding.length > 0) {
+    if (
+      hasCvEmbedding &&
+      cvEmbedding &&
+      jobEmbedding &&
+      jobEmbedding.length > 0
+    ) {
       return this.embedding.toScore(
         this.embedding.cosineSimilarity(cvEmbedding, jobEmbedding),
       );
