@@ -26,10 +26,20 @@ import {
   JobVectorSearchService,
 } from 'src/cv-analysis/job-vector-search.service';
 
+/**
+ * Wall-clock budget (ms) for the synchronous embedding call on interactive
+ * job create/update. On timeout the job is still saved with `embedding: []`
+ * and healed later by `embedMissingJobsCron`. Batch/offline callers (backfill,
+ * seed scripts) pass no deadline and wait as long as needed.
+ */
+const INTERACTIVE_EMBED_DEADLINE_MS = 8000;
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
   private readonly similarEmbeddingThreshold = 0.75;
+  /** Guards `embedMissingJobsCron` against overlapping runs. */
+  private isEmbeddingBackfillRunning = false;
 
   /**
    * Short-lived in-memory cache for `findAll`'s `countDocuments` calls.
@@ -242,9 +252,14 @@ export class JobsService {
   async create(createJobDto: CreateJobDto, user: IUser) {
     this.assertCanCreateForCompany(createJobDto, user);
 
-    // Generate embedding from job text (best-effort; empty array on failure).
+    // Generate embedding from job text (best-effort; empty array on failure
+    // or timeout). Bounded so a slow/hung Gemini call can't stall the create
+    // response — empty rows are healed by `embedMissingJobsCron`.
     const text = this.embedding.buildJobText(createJobDto);
-    const embedding = await this.embedding.embed(text);
+    const embedding = await this.embedding.embed(
+      text,
+      INTERACTIVE_EMBED_DEADLINE_MS,
+    );
     const embeddingHash = this.embedding.computeTextHash(text);
 
     const data = await this.jobModel.create({
@@ -411,7 +426,10 @@ export class JobsService {
       embeddingHash: string;
     }> = {};
     if (newHash !== currentJob?.embeddingHash) {
-      embeddingPatch.embedding = await this.embedding.embed(newText);
+      embeddingPatch.embedding = await this.embedding.embed(
+        newText,
+        INTERACTIVE_EMBED_DEADLINE_MS,
+      );
       embeddingPatch.embeddingHash = newHash;
     }
 
@@ -525,6 +543,65 @@ export class JobsService {
       } = candidate;
       return result;
     });
+  }
+
+  /**
+   * Heal jobs left with an empty embedding — e.g. when Gemini was rate-limited,
+   * down, or timed out (see INTERACTIVE_EMBED_DEADLINE_MS) at create/update
+   * time. Targeted + capped so the periodic scan stays cheap; stale-text
+   * re-embeds are handled on edit (`update`) and by the manual
+   * `backfillEmbeddings` / `reembed:jobs` script.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async embedMissingJobsCron(): Promise<void> {
+    if (this.isEmbeddingBackfillRunning) return;
+    if (!this.embedding.isAvailable()) return;
+
+    this.isEmbeddingBackfillRunning = true;
+    try {
+      const jobs = await this.jobModel
+        .find({
+          isActive: true,
+          $or: [{ embedding: { $exists: false } }, { embedding: { $size: 0 } }],
+        })
+        .select(
+          'name category specialization skills level jobType workMode location yearsOfExperience requirements responsibilities description',
+        )
+        .limit(50)
+        .lean();
+
+      if (jobs.length === 0) return;
+
+      let embedded = 0;
+      for (const job of jobs) {
+        const text = this.embedding.buildJobText(job);
+        // No deadline: the cron is a background path and may wait.
+        const vector = await this.embedding.embed(text);
+        if (vector.length === 0) continue; // still failing — retry next run
+        await this.jobModel.updateOne(
+          { _id: job._id },
+          {
+            $set: {
+              embedding: vector,
+              embeddingHash: this.embedding.computeTextHash(text),
+            },
+          },
+        );
+        embedded++;
+      }
+
+      if (embedded > 0) {
+        this.logger.log(
+          `Embedding backfill cron: embedded ${embedded}/${jobs.length} job(s)`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `Embedding backfill cron failed: ${(err as Error)?.message}`,
+      );
+    } finally {
+      this.isEmbeddingBackfillRunning = false;
+    }
   }
 
   /**

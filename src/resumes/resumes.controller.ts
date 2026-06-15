@@ -37,6 +37,13 @@ export class ResumesController {
     return this.resumesService.findByUsers(user);
   }
 
+  @ResponseMessage('Lấy số lần ứng tuyển thành công')
+  @Get('apply-count/:jobId')
+  @SkipCheckPermission()
+  countByJob(@Param('jobId') jobId: string, @User() user: IUser) {
+    return this.resumesService.countByJob(jobId, user);
+  }
+
   @ResponseMessage('Lấy danh sách resume thành công')
   @Get()
   findAll(

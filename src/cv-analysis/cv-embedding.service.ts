@@ -45,21 +45,37 @@ export class CvEmbeddingService {
   /**
    * Generate a 768-dim embedding for a piece of text. Falls back across keys
    * in the rotator on 429 errors; returns [] on total failure (graceful degrade).
+   *
+   * `deadlineMs` bounds the TOTAL wall-clock spent here (shared across key
+   * attempts) via an AbortSignal. Interactive callers (job create/update) pass
+   * it so a slow/hung Gemini call can't stall the HTTP response — on timeout we
+   * return [] and let the backfill cron heal the row. Batch/offline callers
+   * (backfill cron, seed scripts) omit it and wait as long as needed.
    */
-  async embed(text: string): Promise<number[]> {
+  async embed(text: string, deadlineMs?: number): Promise<number[]> {
     if (!text?.trim() || !this.rotator.isAvailable()) return [];
 
     const maxAttempts = Math.max(1, this.rotator.size());
+    const deadline =
+      deadlineMs && deadlineMs > 0 ? Date.now() + deadlineMs : null;
     let lastErr: unknown = null;
 
     for (let i = 0; i < maxAttempts; i++) {
+      // Shared budget across keys: stop once spent so the total wait stays
+      // bounded even when every attempt hangs.
+      const remaining = deadline === null ? null : deadline - Date.now();
+      if (remaining !== null && remaining <= 0) break;
+
       const picked = this.rotator.next();
       if (!picked) return [];
+
+      const abortSignal =
+        remaining === null ? undefined : AbortSignal.timeout(remaining);
       try {
         const res = await picked.client.models.embedContent({
           model: EMBEDDING_MODEL,
           contents: [text],
-          config: { outputDimensionality: EMBEDDING_DIMS },
+          config: { outputDimensionality: EMBEDDING_DIMS, abortSignal },
         });
         const values = res.embeddings?.[0]?.values;
         if (!values || values.length === 0) {
@@ -69,6 +85,12 @@ export class CvEmbeddingService {
         return values;
       } catch (err: unknown) {
         lastErr = err;
+        // Budget spent mid-call (timed out) — give up now instead of burning
+        // the remaining keys against the same dead clock.
+        if (abortSignal?.aborted) {
+          this.logger.warn(`Embedding timed out after ${deadlineMs}ms`);
+          break;
+        }
         const kind = classifyGeminiError(
           err as { status?: number; message?: string },
         );
@@ -83,7 +105,7 @@ export class CvEmbeddingService {
       }
     }
     this.logger.warn(
-      `Embedding exhausted all ${maxAttempts} key(s): ${(lastErr as Error)?.message}`,
+      `Embedding gave up after ${maxAttempts} attempt(s): ${(lastErr as Error)?.message}`,
     );
     return [];
   }

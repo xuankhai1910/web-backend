@@ -29,6 +29,10 @@ const ALLOWED_STATUSES = [
 ] as const;
 export type ResumeStatus = (typeof ALLOWED_STATUSES)[number];
 
+// Số lần tối đa một ứng viên được ứng tuyển cùng một công việc (chống spam).
+// Bản ghi đã xoá mềm không tính (countDocuments của mongoose-delete bỏ qua).
+const MAX_APPLICATIONS_PER_JOB = 3;
+
 @Injectable()
 export class ResumesService {
   private readonly logger = new Logger(ResumesService.name);
@@ -144,6 +148,17 @@ export class ResumesService {
 
     await this.assertLocalCvOwnership(url, user);
 
+    // Chặn spam: mỗi ứng viên chỉ được ứng tuyển 1 công việc tối đa 3 lần.
+    const applyCount = await this.resumeModel.countDocuments({
+      userId: _id,
+      jobId,
+    });
+    if (applyCount >= MAX_APPLICATIONS_PER_JOB) {
+      throw new BadRequestException(
+        `Bạn đã ứng tuyển công việc này tối đa ${MAX_APPLICATIONS_PER_JOB} lần.`,
+      );
+    }
+
     const newCV = await this.resumeModel.create({
       url,
       companyId,
@@ -173,6 +188,26 @@ export class ResumesService {
     return {
       _id: newCV._id,
       createdAt: newCV.createdAt,
+    };
+  }
+
+  /**
+   * Số lần ứng viên đã ứng tuyển một công việc + hạn mức còn lại.
+   * FE dùng để đổi nhãn nút ("Ứng tuyển ngay" → "Ứng tuyển lại") và cảnh báo
+   * lần cuối. Đếm cùng ngữ nghĩa với check chống spam trong `create`.
+   */
+  async countByJob(jobId: string, user: IUser) {
+    if (!mongoose.Types.ObjectId.isValid(jobId)) {
+      throw new BadRequestException('jobId không hợp lệ');
+    }
+    const count = await this.resumeModel.countDocuments({
+      userId: user._id,
+      jobId: jobId as unknown as mongoose.Schema.Types.ObjectId,
+    });
+    return {
+      count,
+      limit: MAX_APPLICATIONS_PER_JOB,
+      remaining: Math.max(0, MAX_APPLICATIONS_PER_JOB - count),
     };
   }
 

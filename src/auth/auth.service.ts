@@ -166,7 +166,8 @@ export class AuthService {
     this.assertPasswordConfirmation(dto.newPassword, dto.confirmPassword);
 
     const tokenHash = this.hashResetToken(dto.token);
-    const user = await this.usersService.findUserByPasswordResetToken(tokenHash);
+    const user =
+      await this.usersService.findUserByPasswordResetToken(tokenHash);
 
     if (!user) {
       throw new BadRequestException(
@@ -174,14 +175,21 @@ export class AuthService {
       );
     }
 
-    await this.usersService.updatePassword(user._id.toString(), dto.newPassword, {
-      clearRefreshToken: true,
-    });
+    await this.usersService.updatePassword(
+      user._id.toString(),
+      dto.newPassword,
+      {
+        clearRefreshToken: true,
+      },
+    );
 
     return { success: true };
   }
 
-  private assertPasswordConfirmation(password: string, confirmPassword: string) {
+  private assertPasswordConfirmation(
+    password: string,
+    confirmPassword: string,
+  ) {
     if (password !== confirmPassword) {
       throw new BadRequestException('Xác nhận mật khẩu không khớp');
     }
