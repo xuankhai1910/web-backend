@@ -47,6 +47,7 @@
     "ejs": "^5.0.1",
     "handlebars": "4.7.9",
     "helmet": "^8.1.0",
+    "mammoth": "^1.12.0",
     "mongoose": "^9.3.2",
     "mongoose-delete": "^1.0.7",
     "ms": "^2.1.3",

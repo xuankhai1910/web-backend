@@ -63,11 +63,18 @@ export class FilesService {
       fileHash = await this.computeFileHash(file.path);
       const duplicate = await this.findDuplicate(user, folder, fileHash);
       if (duplicate) {
-        await this.safeUnlink(file.path);
-        return {
-          fileName: duplicate.filename,
-          duplicate: true,
-        };
+        const targetDir = this.resolveFolderPath(folder);
+        const duplicatePath = path.resolve(targetDir, duplicate.filename);
+        if (fs.existsSync(duplicatePath)) {
+          await this.safeUnlink(file.path);
+          return {
+            fileName: duplicate.filename,
+            duplicate: true,
+          };
+        } else {
+          // File has been deleted on disk (e.g. ephemeral server reset), clean up the stale DB record
+          await this.uploadedFileModel.deleteOne({ _id: duplicate._id });
+        }
       }
 
       await this.assertQuota(user, file.size);

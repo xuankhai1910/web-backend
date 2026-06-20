@@ -21,6 +21,7 @@ import {
   MAX_BATCH_RESUMES,
   MIN_BATCH_RESUMES,
   PER_KEY_BATCH_RESUMES,
+  BATCH_ELIGIBLE_STATUSES,
 } from './cv-analysis.constants';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
@@ -607,9 +608,12 @@ export class CvAnalysisService {
 
     const effectiveMax = this.computeBatchMax();
 
-    // Only CVs that haven't been scored yet (no persisted match).
+    // Only CVs that are still open (PENDING / REVIEWING) AND haven't been scored
+    // yet (no persisted match). Once a candidate is APPROVED or REJECTED the
+    // decision is made, so there's no point spending a Gemini call on it.
     const candidateFilter: FilterQuery<ResumeDocument> = {
       companyId,
+      status: { $in: [...BATCH_ELIGIBLE_STATUSES] },
       'match.score': { $exists: false },
     };
     const candidates = await this.resumeModel
@@ -629,7 +633,8 @@ export class CvAnalysisService {
         effectiveMax,
         total: 0,
         resumeIds: [] as string[],
-        message: 'Không có CV nào cần phân tích (tất cả đã được chấm điểm).',
+        message:
+          'Không có CV nào cần phân tích (chỉ phân tích hồ sơ đang chờ/đang xem xét và chưa được chấm điểm).',
       };
     }
 

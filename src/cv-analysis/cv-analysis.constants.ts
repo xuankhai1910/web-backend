@@ -39,6 +39,10 @@ export const MIN_BATCH_RESUMES = 20;
 // Per-key contribution to the per-run cap. With fewer keys the cap shrinks so
 // a small key pool isn't asked to extract 100 fresh CVs at once.
 export const PER_KEY_BATCH_RESUMES = 30;
+// Only CVs still in an open state are worth batch-analyzing — once a candidate
+// has been APPROVED or REJECTED the HR has already decided, so a match score no
+// longer informs anything. Keep in sync with ALLOWED_STATUSES in resumes.service.
+export const BATCH_ELIGIBLE_STATUSES = ['PENDING', 'REVIEWING'] as const;
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
 // `specialization` was dropped from scoring: it isn't available from a user

@@ -56,7 +56,6 @@ export class MulterConfigService implements MulterOptionsFactory {
           'png',
           'gif',
           'pdf',
-          'doc',
           'docx',
         ];
         const fileExtension =

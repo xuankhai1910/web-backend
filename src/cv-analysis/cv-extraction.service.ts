@@ -3,6 +3,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PDFParse } from 'pdf-parse';
+import * as mammoth from 'mammoth';
+import type { Part } from '@google/genai';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { resolveProvince } from 'src/databases/vietnam-provinces';
@@ -43,6 +45,13 @@ export class CvExtractionService {
   async extract(
     filePath: string,
   ): Promise<{ data: ExtractedCvData; analyzedBy: 'ai' | 'keyword' }> {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.pdf' && ext !== '.docx') {
+      // Legacy .doc (and any other format) can't be read reliably without a
+      // native converter, so we reject it up front instead of falling through
+      // to a garbage keyword result. Upload is already restricted to PDF/DOCX.
+      throw new BadRequestException('Chỉ hỗ trợ phân tích file PDF hoặc DOCX');
+    }
     try {
       const data = await this.analyzeWithGemini(filePath);
       return { data, analyzedBy: 'ai' };
@@ -69,9 +78,7 @@ export class CvExtractionService {
       );
     }
 
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const mimeType = this.detectMimeType(filePath);
-    const base64Data = fileBuffer.toString('base64');
+    const parts = await this.buildCvParts(filePath);
 
     let lastError: Error | null = null;
 
@@ -84,15 +91,7 @@ export class CvExtractionService {
         try {
           const response = await picked.client.models.generateContent({
             model: modelName,
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  { inlineData: { mimeType, data: base64Data } },
-                  { text: CV_EXTRACTION_PROMPT },
-                ],
-              },
-            ],
+            contents: [{ role: 'user', parts }],
             config: {
               responseMimeType: 'application/json',
               responseSchema: CV_EXTRACTION_RESPONSE_SCHEMA as never,
@@ -205,13 +204,36 @@ export class CvExtractionService {
     throw lastError ?? new Error('Gemini analysis exhausted all models');
   }
 
-  private detectMimeType(filePath: string): string {
+  /**
+   * Build the Gemini `parts` for a CV file.
+   *  - PDF is sent as inline document data so Gemini reads layout natively.
+   *  - DOCX is NOT an accepted inlineData mime for Gemini document
+   *    understanding, so we extract its text with mammoth and send that as a
+   *    text part instead.
+   */
+  private async buildCvParts(filePath: string): Promise<Part[]> {
     const ext = path.extname(filePath).toLowerCase();
-    if (ext === '.pdf') return 'application/pdf';
-    if (ext === '.docx')
-      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    if (ext === '.doc') return 'application/msword';
-    return 'application/pdf';
+    const buffer = await fs.promises.readFile(filePath);
+
+    if (ext === '.docx') {
+      const text = (await this.extractDocxText(buffer)).trim();
+      if (!text) {
+        throw new BadRequestException('Không đọc được nội dung file DOCX');
+      }
+      return [{ text: `Nội dung CV:\n\n${text}` }, { text: CV_EXTRACTION_PROMPT }];
+    }
+
+    // PDF (the only other extension allowed past `extract`'s guard).
+    return [
+      { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
+      { text: CV_EXTRACTION_PROMPT },
+    ];
+  }
+
+  /** Extract plain text from a .docx buffer via mammoth. */
+  private async extractDocxText(buffer: Buffer): Promise<string> {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value ?? '';
   }
 
   // ─── KEYWORD FALLBACK ─────────────────────────────────────
@@ -303,6 +325,9 @@ export class CvExtractionService {
           .map((p: { text: string }) => p.text)
           .join('\n')
           .toLowerCase();
+      }
+      if (ext === '.docx') {
+        return (await this.extractDocxText(buffer)).toLowerCase();
       }
       return buffer.toString('utf-8').toLowerCase();
     } catch (err) {
