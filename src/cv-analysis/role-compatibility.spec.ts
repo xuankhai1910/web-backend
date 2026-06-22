@@ -112,6 +112,83 @@ describe('roleCompatibilityScore', () => {
   });
 });
 
+describe('inferRole — explicit specialization is authoritative', () => {
+  it('keeps a Product Manager as product_manager despite Jira/User Story skills', () => {
+    expect(
+      inferRole({
+        category: JOB_CATEGORIES.PRODUCT_MANAGEMENT,
+        specialization: 'Product Owner/Product Manager',
+        title: 'Senior Product Manager',
+        skills: ['roadmap', 'okr', 'user story', 'jira', 'sql'],
+      }).group,
+    ).toBe('product_manager');
+  });
+
+  it('does not reclassify a Data Analyst as a Data Scientist from an ML keyword', () => {
+    expect(
+      inferRole({
+        category: JOB_CATEGORIES.DATA_SCIENCE,
+        specialization: 'Data Analyst',
+        title: 'Data Analyst',
+        skills: ['sql', 'power bi', 'machine learning'],
+      }).group,
+    ).toBe('data_analyst');
+  });
+
+  it('does not reclassify a System Engineer as DevOps from cloud/docker keywords', () => {
+    expect(
+      inferRole({
+        category: JOB_CATEGORIES.IT_INFRASTRUCTURE,
+        specialization: 'System Engineer',
+        title: 'System Engineer',
+        skills: ['linux', 'aws', 'docker'],
+      }).group,
+    ).toBe('system');
+  });
+
+  it('still sharpens the testing umbrella to automation when skills indicate it', () => {
+    expect(
+      inferRole({
+        category: JOB_CATEGORIES.SOFTWARE_TESTING,
+        specialization: 'Software Tester (Automation & Manual)',
+        title: 'Automation Tester',
+        skills: ['selenium', 'playwright'],
+      }).group,
+    ).toBe('test_automation');
+  });
+});
+
+describe('classifyRoleRelation — Product Manager CV ranks PM jobs above BA jobs', () => {
+  const pmCv = {
+    category: JOB_CATEGORIES.PRODUCT_MANAGEMENT,
+    specialization: 'Product Owner/Product Manager',
+    title: 'Senior Product Manager',
+    skills: ['roadmap', 'okr', 'user story', 'jira', 'sql'],
+  };
+
+  it('puts the same specialization (PM) in the top tier', () => {
+    const pm = classifyRoleRelation(pmCv, {
+      category: JOB_CATEGORIES.PRODUCT_MANAGEMENT,
+      specialization: 'Product Owner/Product Manager',
+      title: 'Product Manager',
+      skills: [],
+    });
+    expect(pm.tier).toBe(3);
+    expect(pm.roleScore).toBe(1);
+  });
+
+  it('keeps a Business Analyst job in tier 2 (same category, lower score)', () => {
+    const ba = classifyRoleRelation(pmCv, {
+      category: JOB_CATEGORIES.PRODUCT_MANAGEMENT,
+      specialization: 'Business Analyst (Phân tích nghiệp vụ)',
+      title: 'Chuyên Viên Business Analyst',
+      skills: ['sql'],
+    });
+    expect(ba.tier).toBe(2);
+    expect(ba.roleScore).toBeLessThan(1);
+  });
+});
+
 describe('classifyRoleRelation — category-first ranking for a DevOps CV', () => {
   const devopsCv = {
     category: JOB_CATEGORIES.IT_INFRASTRUCTURE,

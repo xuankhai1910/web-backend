@@ -189,9 +189,9 @@ describe('CvScoringService title matching', () => {
       summary: '',
     };
     const baseJob = {
-      name: 'Senior System Engineer (Cloud)',
+      name: 'Senior DevOps Engineer',
       category: 'IT Infrastructure and Operations',
-      specialization: 'System Engineer',
+      specialization: 'DevOps Engineer',
       level: 'SENIOR',
       location: 'Ha Noi',
     };

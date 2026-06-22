@@ -365,6 +365,29 @@ const CATEGORY_ADJACENCY: Record<string, number> = {
     0.3,
 };
 
+/**
+ * Generic "umbrella" specializations that free-text MAY sharpen into a more
+ * specific sub-role within the SAME category. Anything not listed here is an
+ * authoritative, specific specialization that free-text cannot override.
+ *
+ * This is what stops shared tool keywords from hijacking the role: a Product
+ * Manager who lists "Jira"/"User Story" stays a Product Manager (it is not an
+ * umbrella), whereas a generic "Software Engineer" with NodeJS projects is
+ * still allowed to sharpen to `backend`. The values are the umbrella's true
+ * sub-roles — never a sibling that is itself a selectable specialization
+ * (e.g. Business Analyst is a sibling of Product Manager, not a sub-role).
+ */
+const REFINABLE_UMBRELLAS: Partial<Record<RoleGroup, Set<RoleGroup>>> = {
+  software_general: new Set<RoleGroup>([
+    'backend',
+    'frontend',
+    'mobile',
+    'fullstack',
+    'blockchain',
+  ]),
+  testing_general: new Set<RoleGroup>(['test_automation', 'test_manual']),
+};
+
 export function inferRole(input: RoleInput): InferredRole {
   const category = input.category?.trim() || '';
   const text = normalizeRoleText(
@@ -372,27 +395,28 @@ export function inferRole(input: RoleInput): InferredRole {
       .filter(Boolean)
       .join(' '),
   );
+  const hasSpecialization = !!input.specialization?.trim();
   const specializationGroup = groupFromSpecialization(
     category,
     input.specialization ?? '',
   );
   const textGroup = groupFromText(text);
 
-  // Refine a generic/empty specialization via free-text — but only WITHIN the
-  // same category. Otherwise an IT-Infra keyword inside, say, an "AI Engineer
-  // (Python, Docker)" job would flip its group to `devops` and make a
-  // different-category job look identical to a DevOps candidate's role. When no
-  // category is known (e.g. a CV with only a title), text is the only signal,
-  // so it's used as-is.
+  // Free-text is only ever consulted WITHIN the candidate's own category, so an
+  // IT-Infra keyword inside, say, an "AI Engineer (Python, Docker)" job can't
+  // flip its group to `devops`. When no category is known (e.g. a CV with only
+  // a title), text is the only signal, so it's used as-is.
   const textGroupInCategory: RoleGroup | null =
     textGroup && (!category || CATEGORY_BY_GROUP[textGroup] === category)
       ? textGroup
       : null;
 
   const group: RoleGroup =
-    (specializationGroup && !isGenericGroup(specializationGroup)
-      ? specializationGroup
-      : textGroupInCategory || specializationGroup) ??
+    resolveRoleGroup(
+      hasSpecialization,
+      specializationGroup,
+      textGroupInCategory,
+    ) ??
     DEFAULT_GROUP_BY_CATEGORY[category] ??
     'unknown';
 
@@ -400,6 +424,34 @@ export function inferRole(input: RoleInput): InferredRole {
     category: category || CATEGORY_BY_GROUP[group] || '',
     group,
   };
+}
+
+/**
+ * Combine the two role signals with the right precedence:
+ *  - `specializationGroup` comes from the Gemini-selected `desiredSpecialization`
+ *    (a closed-enum value) and is AUTHORITATIVE when present.
+ *  - `textGroupInCategory` is a best-effort guess from free-text (title +
+ *    skills), already constrained to the candidate's category.
+ *
+ * An explicit specialization wins. Free-text may only SHARPEN a true umbrella
+ * role into one of its sub-roles (Software Engineer → backend); it can never
+ * SWITCH to a sibling the candidate didn't pick (Product Manager → Business
+ * Analyst from a stray "Jira"/"User Story"). With no specialization, free-text
+ * is the primary signal.
+ */
+function resolveRoleGroup(
+  hasSpecialization: boolean,
+  specializationGroup: RoleGroup | null,
+  textGroupInCategory: RoleGroup | null,
+): RoleGroup | null {
+  if (hasSpecialization && specializationGroup) {
+    const children = REFINABLE_UMBRELLAS[specializationGroup];
+    if (children && textGroupInCategory && children.has(textGroupInCategory)) {
+      return textGroupInCategory;
+    }
+    return specializationGroup;
+  }
+  return textGroupInCategory ?? specializationGroup;
 }
 
 function scoreFromRoles(cvRole: InferredRole, jobRole: InferredRole): number {
@@ -627,7 +679,10 @@ function groupFromText(text: string): RoleGroup | null {
   }
   if (hasAny(text, ['unity', 'unreal', 'game developer']))
     return 'game_developer';
-  if (hasAny(text, ['business analyst', 'requirement', 'user story', 'jira'])) {
+  // Keep this to role-defining terms only. "jira"/"user story" were removed
+  // because they are shared by PM/PO/Scrum/QA and falsely flipped those roles
+  // to Business Analyst.
+  if (hasAny(text, ['business analyst', 'requirement'])) {
     return 'business_analyst';
   }
   if (hasAny(text, ['product owner', 'product manager']))
@@ -659,25 +714,6 @@ function groupFromText(text: string): RoleGroup | null {
   if (hasAny(text, ['security', 'cyber', 'pentest'])) return 'security_general';
   if (hasAny(text, ['ui/ux', 'figma', 'interaction designer'])) return 'uiux';
   return null;
-}
-
-function isGenericGroup(group: RoleGroup): boolean {
-  return [
-    'software_general',
-    'testing_general',
-    'ai_engineer',
-    'data_analyst',
-    'system',
-    'security_general',
-    'iot',
-    'project_manager',
-    'technical_manager',
-    'uiux',
-    'product_manager',
-    'game_developer',
-    'software_sales',
-    'other_it',
-  ].includes(group);
 }
 
 function hasAny(text: string, values: string[]): boolean {
