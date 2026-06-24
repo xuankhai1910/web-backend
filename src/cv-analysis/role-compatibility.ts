@@ -477,6 +477,40 @@ export function roleCompatibilityScore(
 }
 
 /**
+ * Reverse of `groupFromSpecialization`: the canonical specialization label for
+ * each role group. Built once from the taxonomy so the labels always match the
+ * enum in `jobs.constants.ts`. The mapping is effectively 1:1 — each specific
+ * group is produced by exactly one specialization (e.g. `fullstack` ⇐
+ * "Fullstack Developer").
+ */
+let _specializationByGroup: Map<RoleGroup, string> | null = null;
+function specializationByGroup(): Map<RoleGroup, string> {
+  if (_specializationByGroup) return _specializationByGroup;
+  const map = new Map<RoleGroup, string>();
+  for (const { specialization, group } of taxonomyCoverage()) {
+    if (!map.has(group)) map.set(group, specialization);
+  }
+  _specializationByGroup = map;
+  return map;
+}
+
+/**
+ * Best-effort human-readable taxonomy (category + specialization) for a
+ * candidate whose profile has no explicit IT-taxonomy fields. Reuses the same
+ * `inferRole` the scorer uses, so the displayed "Nhóm ngành" is consistent with
+ * the role compatibility that actually drove the score. Returns empty strings
+ * when the role can't be inferred confidently (group `unknown`).
+ */
+export function describeRole(input: RoleInput): {
+  category: string;
+  specialization: string;
+} {
+  const { category, group } = inferRole(input);
+  if (group === 'unknown') return { category: category || '', specialization: '' };
+  return { category, specialization: specializationByGroup().get(group) ?? '' };
+}
+
+/**
  * Minimum `roleCompatibilityScore` for a job to count as "related" to the
  * candidate when it is NOT in the same category. 0.45 == the same-category
  * floor, so this keeps strongly-related cross-category roles (e.g.

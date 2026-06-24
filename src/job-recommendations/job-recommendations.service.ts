@@ -130,6 +130,8 @@ export class JobRecommendationsService {
         level: extracted.level,
         yearsOfExperience: extracted.yearsOfExperience,
         desiredJobTitle: extracted.desiredJobTitle,
+        desiredCategory: extracted.desiredCategory,
+        desiredSpecialization: extracted.desiredSpecialization,
         preferredLocations: extracted.preferredLocations,
       },
       total: scored.length,

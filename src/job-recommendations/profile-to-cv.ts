@@ -1,5 +1,6 @@
 import type { UserProfileDocument } from 'src/user-profiles/schemas/user-profile.schema';
 import type { ExtractedCvData } from 'src/cv-analysis/cv-scoring.service';
+import { describeRole } from 'src/cv-analysis/role-compatibility';
 
 /**
  * Adapt a structured `UserProfile` (CV-builder data) into the same
@@ -19,19 +20,24 @@ export function profileToExtractedCv(
   const yearsOfExperience = totalYearsOfExperience(profile);
   const recentPosition = mostRecentPosition(profile);
   const level = deriveLevel(recentPosition, yearsOfExperience);
+  // The candidate's target role — the CV-builder "Vị trí mong muốn" field is
+  // stored in `profile.title`. Fall back to the latest job title only when
+  // it's unset / still the default placeholder.
+  const desiredJobTitle = deriveDesiredTitle(profile, recentPosition) || undefined;
+  // The profile builder has no IT-taxonomy fields, so derive them from the title
+  // + skills using the SAME role inference the scorer uses. This keeps the score
+  // unchanged (the scorer already infers the role group from the title) while
+  // giving the comparison modal a non-empty "Nhóm ngành" to display. Stays
+  // undefined when the role can't be inferred confidently.
+  const role = describeRole({ title: desiredJobTitle, skills });
 
   return {
     skills,
     level,
     yearsOfExperience,
-    // The candidate's target role — the CV-builder "Vị trí mong muốn" field is
-    // stored in `profile.title`. Fall back to the latest job title only when
-    // it's unset / still the default placeholder.
-    desiredJobTitle: deriveDesiredTitle(profile, recentPosition) || undefined,
-    // Profile has no IT-taxonomy fields → leave undefined so the
-    // specialization signal is treated as N/A and its weight redistributed.
-    desiredCategory: undefined,
-    desiredSpecialization: undefined,
+    desiredJobTitle,
+    desiredCategory: role.category || undefined,
+    desiredSpecialization: role.specialization || undefined,
     education: deriveEducation(profile),
     preferredLocations: derivePreferredLocations(profile),
     summary: profile.summary || '',
