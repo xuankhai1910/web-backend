@@ -328,6 +328,7 @@ export class CvAnalysisService {
     const cvRole = inferRole(cvRoleInput);
     const categoryFirst = cvRole.group !== 'unknown';
 
+    const tRetrievalStart = Date.now();
     const search = await this.jobVectorSearch.findCandidates(cvEmbedding);
     // Merge vector candidates with every active job of the CV's own category so
     // same-category jobs are never starved by the category-blind vector top-N.
@@ -343,9 +344,11 @@ export class CvAnalysisService {
       }
     }
     const candidateJobs = [...byId.values()];
+    const retrievalMs = Date.now() - tRetrievalStart;
     this.logger.log(
       `[recommend-jobs] mode=${search.mode} categoryFirst=${categoryFirst} ` +
-        `cat=${cvRole.category || '-'} candidates=${candidateJobs.length} limit=${safeLimit}`,
+        `cat=${cvRole.category || '-'} candidates=${candidateJobs.length} limit=${safeLimit} ` +
+        `retrievalMs=${retrievalMs}`,
     );
 
     if (candidateJobs.length === 0) {
@@ -355,6 +358,7 @@ export class CvAnalysisService {
       };
     }
 
+    const tScoringStart = Date.now();
     const scored = candidateJobs
       .map((job) => {
         const vectorScore = this.resolveVectorScore(
@@ -392,6 +396,11 @@ export class CvAnalysisService {
       // were already removed by the filter above.
       .sort((a, b) => b.score - a.score)
       .slice(0, safeLimit);
+    const scoringMs = Date.now() - tScoringStart;
+    this.logger.log(
+      `[recommend-jobs] hybridScoringMs=${scoringMs} scored=${candidateJobs.length} ` +
+        `returned=${scored.length}`,
+    );
 
     return {
       analysis: this.toAnalysisSummary(analysis),

@@ -82,12 +82,14 @@ export class JobRecommendationsService {
       }
     }
 
+    const tRetrievalStart = Date.now();
     const search = await this.jobVectorSearch.findCandidates(
       profile.embedding,
     );
     const candidates = search.jobs;
+    const retrievalMs = Date.now() - tRetrievalStart;
     this.logger.log(
-      `[profile-recommendations] mode=${search.mode} candidates=${candidates.length} limit=${safeLimit}`,
+      `[profile-recommendations] mode=${search.mode} candidates=${candidates.length} limit=${safeLimit} retrievalMs=${retrievalMs}`,
     );
 
     // Adapt the structured profile into the same shape the uploaded-CV pipeline
@@ -96,6 +98,7 @@ export class JobRecommendationsService {
     const extracted = profileToExtractedCv(profile);
     const hasProfileEmbedding = (profile.embedding?.length || 0) > 0;
 
+    const tScoringStart = Date.now();
     const scored: RecommendedJob[] = candidates
       .map((job) => {
         const vectorScore = this.resolveVectorScore(
@@ -116,6 +119,10 @@ export class JobRecommendationsService {
       .filter((r) => r.score.score > 0.05)
       .sort((a, b) => b.score.score - a.score.score)
       .slice(0, safeLimit);
+    const scoringMs = Date.now() - tScoringStart;
+    this.logger.log(
+      `[profile-recommendations] hybridScoringMs=${scoringMs} scored=${candidates.length} returned=${scored.length}`,
+    );
 
     return {
       profile: {
