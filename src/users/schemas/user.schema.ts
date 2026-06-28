@@ -9,11 +9,23 @@ export class User {
   @Prop({ required: true })
   email: string;
 
-  @Prop({ required: true })
+  // Không bắt buộc ở tầng schema để hỗ trợ user đăng nhập bằng Google
+  // (không có mật khẩu). API đăng ký thường vẫn bắt buộc qua RegisterUserDto.
+  @Prop()
   password: string;
 
   @Prop()
   name: string;
+
+  // 'local' (email/mật khẩu) hoặc 'google'
+  @Prop({ default: 'local' })
+  provider: string;
+
+  @Prop({ unique: true, sparse: true })
+  googleId: string;
+
+  @Prop()
+  avatar: string;
 
   @Prop()
   age: number;

@@ -71,6 +71,57 @@ export class UsersService {
     return { _id: user._id, createdAt: user.createdAt };
   }
 
+  // Tìm hoặc tạo user khi đăng nhập bằng Google.
+  // - Email chưa tồn tại  -> tạo user mới (provider='google', role mặc định NORMAL_USER).
+  // - Email đã tồn tại     -> liên kết googleId vào tài khoản đó (giữ nguyên role).
+  // Trả về user kèm permissions để truyền thẳng vào AuthService.login.
+  async findOrCreateGoogleUser(profile: {
+    email: string;
+    name: string;
+    googleId: string;
+    avatar?: string;
+  }) {
+    let user = await this.userModel.findOne({ email: profile.email });
+
+    if (!user) {
+      const userRole = await this.roleModel.findOne({ name: USER_ROLE });
+      if (!userRole) {
+        throw new BadRequestException(
+          'Vai trò người dùng mặc định chưa được khởi tạo',
+        );
+      }
+      user = await this.userModel.create({
+        email: profile.email,
+        name: profile.name,
+        avatar: profile.avatar,
+        provider: 'google',
+        googleId: profile.googleId,
+        role: userRole._id,
+      } as any);
+    } else if (!user.googleId) {
+      // Liên kết tài khoản local hiện có với Google
+      user.googleId = profile.googleId;
+      user.provider = 'google';
+      if (!user.avatar && profile.avatar) {
+        user.avatar = profile.avatar;
+      }
+      await user.save();
+    }
+
+    const roleWithPermissions = await this.roleModel
+      .findById(user.role)
+      .populate({ path: 'permissions' });
+
+    return {
+      ...user.toObject(),
+      role: {
+        _id: roleWithPermissions?._id,
+        name: (roleWithPermissions as any)?.name,
+      },
+      permissions: (roleWithPermissions as any)?.permissions ?? [],
+    };
+  }
+
   async findAll(currentPage: number, limit: number, qs: string) {
     const { filter, sort, projection, population } = aqp(qs);
     delete filter.current;

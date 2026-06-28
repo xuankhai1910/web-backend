@@ -8,6 +8,7 @@ import { Response } from 'express';
 import ms from 'ms';
 import { RolesService } from 'src/roles/roles.service';
 import { createHash, randomBytes } from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { MailService } from 'src/mail/mail.service';
 import {
   ChangePasswordDto,
@@ -35,6 +36,12 @@ export class AuthService {
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.usersService.findOneByUsername(username);
     if (user) {
+      // Tài khoản tạo qua Google không có mật khẩu local
+      if (!user.password) {
+        throw new BadRequestException(
+          'Tài khoản này sử dụng đăng nhập với Google',
+        );
+      }
       const isValid = this.usersService.isValidPassword(pass, user.password);
       if (isValid) {
         const userRole = user.role as unknown as { _id: string; name: string };
@@ -98,6 +105,39 @@ export class AuthService {
     return this.usersService.register(registerUserDto);
   }
 
+  // Đăng nhập với Google: verify ID token rồi tái dùng login() để cấp token + cookie.
+  async loginWithGoogle(idToken: string, response: Response) {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    if (!clientId) {
+      throw new BadRequestException('Google OAuth chưa được cấu hình');
+    }
+
+    let payload: import('google-auth-library').TokenPayload | undefined;
+    try {
+      const client = new OAuth2Client(clientId);
+      const ticket = await client.verifyIdToken({
+        idToken,
+        audience: clientId,
+      });
+      payload = ticket.getPayload();
+    } catch (error) {
+      throw new BadRequestException('Google token không hợp lệ');
+    }
+
+    if (!payload?.email || payload.email_verified !== true) {
+      throw new BadRequestException('Email Google chưa được xác thực');
+    }
+
+    const user = await this.usersService.findOrCreateGoogleUser({
+      email: payload.email,
+      name: payload.name || payload.email,
+      googleId: payload.sub,
+      avatar: payload.picture,
+    });
+
+    return this.login(user as unknown as IUser, response);
+  }
+
   async changePassword(user: IUser, dto: ChangePasswordDto) {
     this.assertPasswordConfirmation(dto.newPassword, dto.confirmPassword);
 
@@ -106,6 +146,12 @@ export class AuthService {
     );
     if (!foundUser) {
       throw new BadRequestException('Tài khoản không tồn tại');
+    }
+
+    if (!foundUser.password) {
+      throw new BadRequestException(
+        'Tài khoản đăng nhập bằng Google không thể đổi mật khẩu',
+      );
     }
 
     const isCurrentPasswordValid = this.usersService.isValidPassword(

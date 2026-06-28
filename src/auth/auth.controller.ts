@@ -23,6 +23,7 @@ import {
 	ForgotPasswordDto,
 	ResetPasswordDto,
 } from "./dto/password.dto";
+import { GoogleLoginDto } from "./dto/google-login.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -40,6 +41,17 @@ export class AuthController {
 	@Post("/login")
 	handleLogin(@Req() req, @Res({ passthrough: true }) response: Response) {
 		return this.authService.login(req.user, response);
+	}
+
+	@Throttle({ default: { limit: 5, ttl: 60000 } })
+	@ResponseMessage("Login successful")
+	@Public()
+	@Post("/google")
+	handleGoogleLogin(
+		@Body() googleLoginDto: GoogleLoginDto,
+		@Res({ passthrough: true }) response: Response,
+	) {
+		return this.authService.loginWithGoogle(googleLoginDto.idToken, response);
 	}
 
 	@Public()
