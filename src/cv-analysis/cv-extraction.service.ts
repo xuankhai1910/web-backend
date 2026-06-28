@@ -9,8 +9,8 @@ import type { SoftDeleteModel } from 'mongoose-delete';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { resolveProvince } from 'src/databases/vietnam-provinces';
 import {
+  CV_EXTRACTION_MODEL_CHAIN,
   GEMINI_MAX_RETRIES,
-  GEMINI_MODEL_CHAIN,
   GEMINI_RETRY_DELAYS_MS,
   SKILL_DICT_TTL_MS,
   VIETNAM_CITIES,
@@ -82,11 +82,11 @@ export class CvExtractionService {
 
     let lastError: Error | null = null;
 
-    for (const modelName of GEMINI_MODEL_CHAIN) {
+    for (const modelName of CV_EXTRACTION_MODEL_CHAIN) {
       let modelExhausted = false;
 
       for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES; attempt++) {
-        const picked = this.rotator.next();
+        const picked = this.rotator.next(modelName);
         if (!picked) throw new BadRequestException('No Gemini key available');
         try {
           const response = await picked.client.models.generateContent({
@@ -163,13 +163,14 @@ export class CvExtractionService {
             this.logger.warn(
               `Model '${modelName}' ${reason}, switching to next model...`,
             );
-            if (isDailyExhausted) this.rotator.markDailyExhausted(picked.key);
+            if (isDailyExhausted)
+              this.rotator.markDailyExhausted(picked.key, modelName);
             modelExhausted = true;
             break;
           }
 
           if (is429 && attempt < GEMINI_MAX_RETRIES) {
-            this.rotator.markRateLimited(picked.key, 60);
+            this.rotator.markRateLimited(picked.key, 60, modelName);
             const delay =
               GEMINI_RETRY_DELAYS_MS[attempt] ??
               GEMINI_RETRY_DELAYS_MS[GEMINI_RETRY_DELAYS_MS.length - 1];
@@ -181,7 +182,7 @@ export class CvExtractionService {
           }
 
           if (is429) {
-            this.rotator.markRateLimited(picked.key, 60);
+            this.rotator.markRateLimited(picked.key, 60, modelName);
             this.logger.warn(
               `Model '${modelName}' still 429 after ${GEMINI_MAX_RETRIES} retries, switching to next model...`,
             );

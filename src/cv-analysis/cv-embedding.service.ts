@@ -66,7 +66,7 @@ export class CvEmbeddingService {
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) break;
 
-      const picked = this.rotator.next();
+      const picked = this.rotator.next(EMBEDDING_MODEL);
       if (!picked) return [];
 
       const abortSignal =
@@ -94,8 +94,10 @@ export class CvEmbeddingService {
         const kind = classifyGeminiError(
           err as { status?: number; message?: string },
         );
-        if (kind === 'rpm') this.rotator.markRateLimited(picked.key, 60);
-        else if (kind === 'daily') this.rotator.markDailyExhausted(picked.key);
+        if (kind === 'rpm')
+          this.rotator.markRateLimited(picked.key, 60, EMBEDDING_MODEL);
+        else if (kind === 'daily')
+          this.rotator.markDailyExhausted(picked.key, EMBEDDING_MODEL);
         else {
           // server/invalid/other — log and try next key.
           this.logger.warn(
