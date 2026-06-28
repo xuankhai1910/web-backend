@@ -54,6 +54,11 @@ export class JobsService {
    *
    * Cache key omits the `endDate` Date instance (which changes every ms
    * and would defeat caching) — the rest of the filter is JSON-stable.
+   *
+   * RegExp values (from name/keyword search) are serialized via `toString()`
+   * because `JSON.stringify` on a RegExp yields `"{}"` regardless of its
+   * source — without this, every distinct search term collapses onto the
+   * same cache key and reads back another term's stale total.
    */
   private readonly countCache = new Map<
     string,
@@ -69,7 +74,11 @@ export class JobsService {
 
   private buildCountCacheKey(filter: Record<string, unknown>): string {
     return JSON.stringify(filter, (_key, value) =>
-      value instanceof Date ? '__now__' : value,
+      value instanceof Date
+        ? '__now__'
+        : value instanceof RegExp
+          ? value.toString()
+          : value,
     );
   }
 
@@ -262,8 +271,26 @@ export class JobsService {
     );
     const embeddingHash = this.embedding.computeTextHash(text);
 
+    // `company` is a Mixed sub-doc, so Mongoose does NOT cast `company._id`.
+    // The payload sends it as a string; if we store it verbatim the HR list
+    // filter (which casts `user.company._id` to ObjectId, see findAll) never
+    // matches and the freshly-created job is invisible to its own company —
+    // even though admin (no company filter) sees it. Cast to ObjectId here so
+    // storage is consistent with seeded jobs.
+    const rawCompanyId = createJobDto.company?._id;
+    const company = (
+      typeof rawCompanyId === 'string' &&
+      mongoose.Types.ObjectId.isValid(rawCompanyId)
+        ? {
+            ...createJobDto.company,
+            _id: new mongoose.Types.ObjectId(rawCompanyId),
+          }
+        : createJobDto.company
+    ) as Job['company'];
+
     const data = await this.jobModel.create({
       ...createJobDto,
+      company,
       embedding,
       embeddingHash,
       isActive: this.resolveIsActive(
@@ -352,6 +379,13 @@ export class JobsService {
     const offset = (+currentPage - 1) * +limit;
     const defaultLimit = +limit ? +limit : 10;
 
+    // Default to newest-first when the caller passes no explicit sort.
+    // Without this, Mongo returns natural (insertion) order, so a freshly
+    // created job lands on the last page and looks "missing" from page 1.
+    // Covered by the `{ isActive: 1, createdAt: -1 }` index.
+    const effectiveSort =
+      sort && Object.keys(sort).length > 0 ? sort : { createdAt: -1 };
+
     // Run count + find in parallel — they hit the same filter but don't
     // depend on each other. Sequential, each round-trip to Atlas adds
     // ~100–300ms of pure latency; parallelising roughly halves the wall
@@ -371,7 +405,7 @@ export class JobsService {
         .select('-embedding -embeddingHash')
         .skip(offset)
         .limit(defaultLimit)
-        .sort(sort as Record<string, 1 | -1>)
+        .sort(effectiveSort as Record<string, 1 | -1>)
         .populate(population)
         .lean()
         .exec(),
