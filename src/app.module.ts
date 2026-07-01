@@ -27,6 +27,7 @@ import { SavedJobsModule } from './saved-jobs/saved-jobs.module';
 import { ToolsModule } from './tools/tools.module';
 import { JobRecommendationsModule } from './job-recommendations/job-recommendations.module';
 import { StatsModule } from './stats/stats.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { StatsModule } from './stats/stats.module';
     ToolsModule,
     JobRecommendationsModule,
     StatsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [
