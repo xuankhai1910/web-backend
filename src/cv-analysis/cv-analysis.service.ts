@@ -146,7 +146,7 @@ export class CvAnalysisService {
       normalized.startsWith('images/pdf/profile-') &&
       !normalized.startsWith(`images/pdf/profile-${user._id}-`)
     ) {
-      throw new ForbiddenException('Ban khong co quyen phan tich CV nay');
+      throw new ForbiddenException('Ban khong co quyen phan tich ho so nay');
     }
   }
 
@@ -229,7 +229,7 @@ export class CvAnalysisService {
         this.logger.log(
           `Stale cache for user ${user.email} (analyzedBy=${cached.analyzedBy}, hasEmbedding=${hasEmbedding}, freshEmbeddingHash=${hasFreshEmbeddingHash}). Re-analyzing...`,
         );
-        // Fall through to re-extract; we'll overwrite this document below.
+        // Fall through to re-extract
       }
     }
 

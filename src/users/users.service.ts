@@ -127,7 +127,7 @@ export class UsersService {
     delete filter.current;
     delete filter.pageSize;
     let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = +limit ? +limit : 10;
+    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
     const stableSort =
       sort && Object.keys(sort).length > 0 ? { ...(sort as any) } : {};
     if (!stableSort._id) {
@@ -139,8 +139,9 @@ export class UsersService {
 
     const collation = { locale: 'vi', strength: 1 };
 
-    const totalItems = (await this.userModel.find(filter).collation(collation))
-      .length;
+    const totalItems = await this.userModel
+      .countDocuments(filter)
+      .collation(collation);
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.userModel

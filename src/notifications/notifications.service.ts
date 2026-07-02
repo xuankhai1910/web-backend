@@ -249,7 +249,7 @@ export class NotificationsService {
     const dbFilter = filter as unknown as FilterQuery<NotificationDocument>;
 
     const offset = (+currentPage - 1) * +limit;
-    const defaultLimit = +limit ? +limit : 10;
+    const defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const [totalItems, result] = await Promise.all([
       this.notificationModel.countDocuments(dbFilter),

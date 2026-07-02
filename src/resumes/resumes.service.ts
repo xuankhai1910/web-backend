@@ -221,7 +221,7 @@ export class ResumesService {
     Object.assign(filter, this.scopeFilter(user));
 
     let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = +limit ? +limit : 10;
+    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const collation = { locale: 'vi', strength: 1 };
 

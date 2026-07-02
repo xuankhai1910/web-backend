@@ -39,13 +39,13 @@ export class PermissionsService {
     delete filter.current;
     delete filter.pageSize;
     let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = +limit ? +limit : 10;
+    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const collation = { locale: 'vi', strength: 1 };
 
-    const totalItems = (
-      await this.permissionModel.find(filter).collation(collation)
-    ).length;
+    const totalItems = await this.permissionModel
+      .countDocuments(filter)
+      .collation(collation);
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.permissionModel

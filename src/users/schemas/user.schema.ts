@@ -21,7 +21,9 @@ export class User {
   @Prop({ default: 'local' })
   provider: string;
 
-  @Prop({ unique: true, sparse: true })
+  // Unique index được khai ở cấp schema dưới dạng partial index (chỉ áp cho
+  // bản ghi chưa bị soft-delete) — xem UserSchema.index(...) ở cuối file.
+  @Prop()
   googleId: string;
 
   @Prop()
@@ -94,3 +96,22 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+// Partial unique index cho googleId.
+//
+// Chỉ ràng buộc duy nhất trên các bản ghi CHƯA bị soft-delete (deleted = false)
+// và có googleId. Nếu để `unique: true` mặc định, index sẽ phủ cả bản ghi đã
+// xoá mềm (mongoose-delete không xoá cứng), nên khi một tài khoản Google bị xoá
+// mềm rồi người dùng đăng nhập lại bằng Google, việc tạo user mới với cùng
+// googleId sẽ ném lỗi E11000. Partial index loại các bản ghi đã xoá khỏi ràng
+// buộc để tránh xung đột này.
+UserSchema.index(
+  { googleId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      googleId: { $exists: true },
+      deleted: false,
+    },
+  },
+);

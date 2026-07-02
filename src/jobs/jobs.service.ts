@@ -377,7 +377,7 @@ export class JobsService {
     }
 
     const offset = (+currentPage - 1) * +limit;
-    const defaultLimit = +limit ? +limit : 10;
+    const defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     // Default to newest-first when the caller passes no explicit sort.
     // Without this, Mongo returns natural (insertion) order, so a freshly

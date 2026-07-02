@@ -40,12 +40,13 @@ export class RolesService {
     delete filter.current;
     delete filter.pageSize;
     let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = +limit ? +limit : 10;
+    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const collation = { locale: 'vi', strength: 1 };
 
-    const totalItems = (await this.roleModel.find(filter).collation(collation))
-      .length;
+    const totalItems = await this.roleModel
+      .countDocuments(filter)
+      .collation(collation);
     const totalPages = Math.ceil(totalItems / defaultLimit);
 
     const result = await this.roleModel

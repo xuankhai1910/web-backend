@@ -98,7 +98,7 @@ export class SavedJobsService {
     }
 
     const offset = (+currentPage - 1) * +limit;
-    const defaultLimit = +limit ? +limit : 10;
+    const defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const totalItems = await this.savedJobModel.countDocuments(filter);
     const totalPages = Math.ceil(totalItems / defaultLimit);
