@@ -390,26 +390,41 @@ const REFINABLE_UMBRELLAS: Partial<Record<RoleGroup, Set<RoleGroup>>> = {
 
 export function inferRole(input: RoleInput): InferredRole {
   const category = input.category?.trim() || '';
-  const text = normalizeRoleText(
-    [input.specialization, input.title, ...(input.skills ?? [])]
-      .filter(Boolean)
-      .join(' '),
-  );
   const hasSpecialization = !!input.specialization?.trim();
   const specializationGroup = groupFromSpecialization(
     category,
     input.specialization ?? '',
   );
-  const textGroup = groupFromText(text);
+
+  // Free-text (title + skills) can only ever change the outcome when it might
+  // be consulted by `resolveRoleGroup`: i.e. there is no authoritative
+  // specialization group, OR that group is a generic "umbrella" that free-text
+  // may sharpen into a sub-role. For a specific specialization (e.g. "DevOps
+  // Engineer") the specialization always wins, so skip the text inference
+  // entirely — it would be computed and then discarded. This is a pure
+  // optimization: the resolved group is identical either way.
+  const needsText =
+    !hasSpecialization ||
+    !specializationGroup ||
+    !!REFINABLE_UMBRELLAS[specializationGroup];
 
   // Free-text is only ever consulted WITHIN the candidate's own category, so an
   // IT-Infra keyword inside, say, an "AI Engineer (Python, Docker)" job can't
   // flip its group to `devops`. When no category is known (e.g. a CV with only
   // a title), text is the only signal, so it's used as-is.
-  const textGroupInCategory: RoleGroup | null =
-    textGroup && (!category || CATEGORY_BY_GROUP[textGroup] === category)
-      ? textGroup
-      : null;
+  let textGroupInCategory: RoleGroup | null = null;
+  if (needsText) {
+    const text = normalizeRoleText(
+      [input.specialization, input.title, ...(input.skills ?? [])]
+        .filter(Boolean)
+        .join(' '),
+    );
+    const textGroup = groupFromText(text);
+    textGroupInCategory =
+      textGroup && (!category || CATEGORY_BY_GROUP[textGroup] === category)
+        ? textGroup
+        : null;
+  }
 
   const group: RoleGroup =
     resolveRoleGroup(
