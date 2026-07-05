@@ -15,6 +15,12 @@ import { resolveProvince } from 'src/databases/vietnam-provinces';
 
 /** Structured data extracted from a CV. */
 export interface ExtractedCvData {
+  /** Document-gate result: false when the file isn't a CV/Resume. */
+  isCv?: boolean;
+  /** Coarse document classification from the gate (CV, FORM, INVOICE, ...). */
+  documentType?: string;
+  /** Short Vietnamese reason shown to the user when `isCv` is false. */
+  rejectionReason?: string;
   skills: string[];
   level: string;
   yearsOfExperience: number;

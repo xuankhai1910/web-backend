@@ -183,9 +183,9 @@ const CATEGORY_BY_GROUP: Partial<Record<RoleGroup, string>> = {
 };
 
 const DIRECTED_GROUP_SCORE: Record<string, number> = {
-  'fullstack->backend': 0.82,
-  'fullstack->frontend': 0.82,
-  'fullstack->software_general': 0.82,
+  'fullstack->backend': 0.85,
+  'fullstack->frontend': 0.85,
+  'fullstack->software_general': 0.85,
   'backend->fullstack': 0.65,
   'frontend->fullstack': 0.65,
   'backend->frontend': 0.35,
@@ -521,7 +521,8 @@ export function describeRole(input: RoleInput): {
   specialization: string;
 } {
   const { category, group } = inferRole(input);
-  if (group === 'unknown') return { category: category || '', specialization: '' };
+  if (group === 'unknown')
+    return { category: category || '', specialization: '' };
   return { category, specialization: specializationByGroup().get(group) ?? '' };
 }
 
