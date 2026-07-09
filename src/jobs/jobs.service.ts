@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import mongoose from 'mongoose';
+import type { FilterQuery } from 'mongoose';
 import type { CreateJobDto } from './dto/create-job.dto';
 import type { UpdateJobDto } from './dto/update-job.dto';
 import { Job } from './schemas/job.schema';
@@ -25,6 +26,8 @@ import {
   JobVectorCandidate,
   JobVectorSearchService,
 } from 'src/cv-analysis/job-vector-search.service';
+import { Resume } from 'src/resumes/schemas/resume.schema';
+import type { ResumeDocument } from 'src/resumes/schemas/resume.schema';
 
 /**
  * Wall-clock budget (ms) for the synchronous embedding call on interactive
@@ -68,6 +71,8 @@ export class JobsService {
 
   constructor(
     @InjectModel(Job.name) private jobModel: SoftDeleteModel<JobDocument>,
+    @InjectModel(Resume.name)
+    private resumeModel: SoftDeleteModel<ResumeDocument>,
     private embedding: CvEmbeddingService,
     private jobVectorSearch: JobVectorSearchService,
   ) {}
@@ -482,6 +487,33 @@ export class JobsService {
   }
 
   async remove(id: string, user: IUser) {
+    // Cascade: soft-delete the job's applications (resumes) so they don't
+    // linger as orphan rows pointing at a tombstoned job. Stamp deletedBy
+    // first for the audit trail, then soft-delete. Only rows not already
+    // deleted are touched (mongoose-delete's `delete` skips deleted docs).
+    // Saved-jobs are intentionally left alone — that module renders removed
+    // jobs as "Việc làm đã bị gỡ" via findWithDeleted (see SavedJobsService).
+    const resumeFilter: FilterQuery<ResumeDocument> = {
+      jobId: new mongoose.Types.ObjectId(id),
+    };
+    await this.resumeModel.updateMany(resumeFilter, {
+      deletedBy: {
+        _id: user._id,
+        email: user.email,
+      },
+    });
+    // mongoose-delete performs an updateMany under the hood, so the resolved
+    // result carries `modifiedCount` (not `deletedCount`); its TS type is the
+    // narrower DeleteResult, hence the cast.
+    const cascaded = (await this.resumeModel.delete(resumeFilter)) as unknown as {
+      modifiedCount?: number;
+    };
+    if (cascaded?.modifiedCount) {
+      this.logger.log(
+        `Cascade soft-deleted ${cascaded.modifiedCount} resume(s) for job ${id}`,
+      );
+    }
+
     await this.jobModel.updateOne(
       { _id: id },
       {
