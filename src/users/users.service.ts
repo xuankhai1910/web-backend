@@ -126,14 +126,15 @@ export class UsersService {
     const { filter, sort, projection, population } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
-    let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
+    const offset = (+currentPage - 1) * +limit;
+    const defaultLimit = Math.min(+limit ? +limit : 10, 100);
     const stableSort =
       sort && Object.keys(sort).length > 0 ? { ...(sort as any) } : {};
     if (!stableSort._id) {
       const firstDirection =
-        Object.values(stableSort).find((value) => value === 1 || value === -1) ??
-        -1;
+        Object.values(stableSort).find(
+          (value) => value === 1 || value === -1,
+        ) ?? -1;
       stableSort._id = firstDirection;
     }
 
@@ -150,7 +151,9 @@ export class UsersService {
       .skip(offset)
       .limit(defaultLimit)
       .sort(stableSort)
-      .select('-password -refreshToken -passwordResetToken -passwordResetExpires')
+      .select(
+        '-password -refreshToken -passwordResetToken -passwordResetExpires',
+      )
       .populate(population)
       .exec();
 
@@ -173,7 +176,9 @@ export class UsersService {
       .findOne({
         _id: id,
       })
-      .select('-password -refreshToken -passwordResetToken -passwordResetExpires')
+      .select(
+        '-password -refreshToken -passwordResetToken -passwordResetExpires',
+      )
       .populate({ path: 'role', select: { name: 1, _id: 1 } });
   }
 

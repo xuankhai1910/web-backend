@@ -82,9 +82,7 @@ export class JobsService {
     );
   }
 
-  private async cachedCount(
-    filter: Record<string, unknown>,
-  ): Promise<number> {
+  private async cachedCount(filter: Record<string, unknown>): Promise<number> {
     const key = this.buildCountCacheKey(filter);
     const hit = this.countCache.get(key);
     if (hit && hit.expiresAt > Date.now()) return hit.value;
@@ -427,7 +425,9 @@ export class JobsService {
     // No per-request deactivate: covered by the hourly cron.
     // Strip the 768-dim embedding (~6KB) — clients (job detail page, admin
     // edit modal) never read it; only similarity/recommendation code paths do.
-    return this.jobModel.findById({ _id: id }).select('-embedding -embeddingHash');
+    return this.jobModel
+      .findById({ _id: id })
+      .select('-embedding -embeddingHash');
   }
 
   async update(id: string, updateJobDto: UpdateJobDto, user: IUser) {

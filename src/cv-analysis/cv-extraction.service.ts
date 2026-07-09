@@ -23,40 +23,16 @@ import type { ExtractedCvData } from './cv-scoring.service';
 import { GeminiKeyRotator } from './gemini-key-rotator.service';
 
 /**
- * Thrown when the uploaded file is judged NOT to be a CV/Resume (by the cheap
- * heuristic pre-filter or by Gemini's document gate). Extends BadRequestException
- * so it surfaces to the client as HTTP 400, but is a distinct type so `extract()`
- * re-throws it instead of silently falling back to keyword extraction.
+ * Thrown when Gemini's document gate judges the uploaded file NOT to be a
+ * CV/Resume. Extends BadRequestException so it surfaces to the client as HTTP
+ * 400, but is a distinct type so `extract()` re-throws it instead of silently
+ * falling back to keyword extraction.
  */
 export class NotACvError extends BadRequestException {}
 
-/** User-facing message when an uploaded file isn't a CV. Kept consistent across
- *  both the heuristic pre-filter and Gemini's document gate. */
+/** User-facing message when Gemini judges an uploaded file isn't a CV. */
 export const NOT_A_CV_MESSAGE =
   'File bạn gửi không phải là CV. Vui lòng chọn file khác.';
-
-/**
- * Bilingual signals that a body of text is a job-application CV. Used only by the
- * cheap pre-filter; the authoritative gate is Gemini's `isCv`.
- */
-const CV_SIGNAL_KEYWORDS = [
-  'kinh nghiệm',
-  'kỹ năng',
-  'học vấn',
-  'trình độ',
-  'dự án',
-  'mục tiêu',
-  'ứng tuyển',
-  'experience',
-  'education',
-  'skills',
-  'projects',
-  'objective',
-  'summary',
-  'profile',
-  'curriculum vitae',
-  'resume',
-];
 
 /**
  * Extracts structured data from a CV file via Gemini AI, with a non-AI
@@ -89,42 +65,22 @@ export class CvExtractionService {
       throw new BadRequestException('Chỉ hỗ trợ phân tích file PDF hoặc DOCX');
     }
 
-    // Layer 1 — cheap deterministic pre-filter. Rejects obvious non-CV files
-    // (invoices, forms, essays) before spending a Gemini call, and can't be
-    // fooled by prompt injection. Skipped when little/no text is extractable
-    // (e.g. scanned/image PDFs), which Gemini can still read natively.
-    await this.assertLooksLikeCv(filePath);
-
+    // Gemini's `isCv` document gate is the sole authority on whether a file is a
+    // CV — there is no cheap heuristic pre-filter. Non-CV uploads are rejected by
+    // Gemini (see the STEP 0 gate in the prompt), and Gemini reads scanned/image
+    // PDFs natively, so nothing is filtered out before it gets a look.
     try {
       const data = await this.analyzeWithGemini(filePath);
       return { data, analyzedBy: 'ai' };
     } catch (err) {
-      // Layer 2 — Gemini's document gate is authoritative; never fall back to
-      // keyword extraction for a file it judged not to be a CV.
+      // Gemini's document gate is authoritative; never fall back to keyword
+      // extraction for a file it judged not to be a CV.
       if (err instanceof NotACvError) throw err;
       this.logger.warn(
         `Gemini analysis failed, using keyword fallback: ${err?.message}`,
       );
       const data = await this.keywordFallback(filePath);
       return { data, analyzedBy: 'keyword' };
-    }
-  }
-
-  /**
-   * Cheap pre-filter: if the file yields substantial text but none of it looks
-   * like a CV, reject up front. Stays silent when text is short/empty so scanned
-   * PDFs (readable by Gemini's vision) aren't wrongly rejected.
-   */
-  private async assertLooksLikeCv(filePath: string): Promise<void> {
-    const text = await this.extractText(filePath); // already lower-cased
-    if (text.length < 200) return; // too little text to judge — let Gemini decide
-
-    const hasSignal = CV_SIGNAL_KEYWORDS.some((kw) => text.includes(kw));
-    if (!hasSignal) {
-      this.logger.warn(
-        'Heuristic pre-filter rejected upload as non-CV (no CV signals in text)',
-      );
-      throw new NotACvError(NOT_A_CV_MESSAGE);
     }
   }
 
@@ -296,12 +252,20 @@ export class CvExtractionService {
       if (!text) {
         throw new BadRequestException('Không đọc được nội dung file DOCX');
       }
-      return [{ text: `Nội dung CV:\n\n${text}` }, { text: CV_EXTRACTION_PROMPT }];
+      return [
+        { text: `Nội dung CV:\n\n${text}` },
+        { text: CV_EXTRACTION_PROMPT },
+      ];
     }
 
     // PDF (the only other extension allowed past `extract`'s guard).
     return [
-      { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
+      {
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: buffer.toString('base64'),
+        },
+      },
       { text: CV_EXTRACTION_PROMPT },
     ];
   }

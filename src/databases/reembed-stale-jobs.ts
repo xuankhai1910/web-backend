@@ -26,16 +26,15 @@ type JobForEmbedding = {
   embeddingHash?: string;
 };
 
-const keys = (
-  process.env.GEMINI_API_KEYS ||
-  process.env.GEMINI_API_KEY ||
-  ''
-)
+const keys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')
   .split(',')
   .map((key) => key.trim())
   .filter(Boolean);
 
-const clients = keys.map((apiKey) => ({ apiKey, client: new GoogleGenAI({ apiKey }) }));
+const clients = keys.map((apiKey) => ({
+  apiKey,
+  client: new GoogleGenAI({ apiKey }),
+}));
 let cursor = 0;
 
 function sleep(ms: number) {
@@ -195,7 +194,9 @@ async function main() {
   for (const item of stale) {
     const vector = await embedWithRetry(item.text);
     if (vector.length === 0) {
-      console.warn(`skipped ${item.job._id}: embedding quota still unavailable`);
+      console.warn(
+        `skipped ${item.job._id}: embedding quota still unavailable`,
+      );
       continue;
     }
     await jobs.updateOne(

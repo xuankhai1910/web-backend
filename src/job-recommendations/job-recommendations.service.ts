@@ -83,9 +83,7 @@ export class JobRecommendationsService {
     }
 
     const tRetrievalStart = Date.now();
-    const search = await this.jobVectorSearch.findCandidates(
-      profile.embedding,
-    );
+    const search = await this.jobVectorSearch.findCandidates(profile.embedding);
     const candidates = search.jobs;
     const retrievalMs = Date.now() - tRetrievalStart;
     this.logger.log(

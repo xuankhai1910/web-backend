@@ -42,7 +42,7 @@ export class ToolsService {
   ];
 
   calculate(dto: SalaryCalculatorDto) {
-    const region: SalaryRegion = (dto.region ?? 1) as SalaryRegion;
+    const region: SalaryRegion = dto.region ?? 1;
     const dependents = dto.dependents ?? 0;
 
     if (

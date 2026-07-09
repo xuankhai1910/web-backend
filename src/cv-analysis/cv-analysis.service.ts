@@ -22,7 +22,11 @@ import {
   MIN_BATCH_RESUMES,
   PER_KEY_BATCH_RESUMES,
   BATCH_ELIGIBLE_STATUSES,
+  MATCH_CLAIM_TTL_MS,
+  MIN_CONCURRENT_EXTRACTIONS,
+  MAX_CONCURRENT_EXTRACTIONS,
 } from './cv-analysis.constants';
+import { SimpleSemaphore } from './simple-semaphore';
 import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import { User, UserDocument } from 'src/users/schemas/user.schema';
 import { Resume, ResumeDocument } from 'src/resumes/schemas/resume.schema';
@@ -50,10 +54,37 @@ const MAX_RECOMMEND_LIMIT = 50;
 /** Default page size for recommendation APIs. */
 const DEFAULT_RECOMMEND_LIMIT = 10;
 
+/**
+ * Mongo duplicate-key error (E11000). The atomic upsert patterns below
+ * (batch-usage quota, cv-analysis cache) deliberately race on unique indexes
+ * and use this to detect losing the race.
+ */
+function isDuplicateKeyError(err: unknown): boolean {
+  return (err as { code?: number } | null)?.code === 11000;
+}
+
 @Injectable()
 export class CvAnalysisService {
   private readonly logger = new Logger(CvAnalysisService.name);
   private readonly publicRoot = path.resolve(process.cwd(), 'public');
+
+  /**
+   * Extractions currently running in this process, keyed by
+   * `${ownerUserId}|${fileHash}`. Concurrent requests for the same CV await
+   * ONE shared promise instead of each burning a Gemini call. Cross-instance
+   * duplicates are stopped by the unique (userId, fileHash) cache index.
+   */
+  private readonly inflightExtractions = new Map<
+    string,
+    ReturnType<CvAnalysisService['doExtractionAndCache']>
+  >();
+
+  /**
+   * Bounds concurrent Gemini extractions process-wide (created lazily because
+   * the limit depends on the injected key pool size). Prevents many parallel
+   * batches from 429-storming the shared rotator.
+   */
+  private extractionSemaphore?: SimpleSemaphore;
 
   constructor(
     @InjectModel(CvAnalysis.name)
@@ -246,7 +277,60 @@ export class CvAnalysisService {
    * first insert). Upserting overwrites a stale cache (keyword-only / missing
    * embedding) instead of accumulating orphan documents per (userId, fileHash).
    */
-  private async runExtractionAndCache(
+  private runExtractionAndCache(
+    filePath: string,
+    url: string,
+    fileHash: string,
+    ownerUserId: unknown,
+    triggeredBy: IUser,
+  ): ReturnType<CvAnalysisService['doExtractionAndCache']> {
+    // In-flight dedup: a second request for the same CV (e.g. two HRs scoring
+    // the same resume, or candidate + HR at once) shares the running promise.
+    const inflightKey = `${String(ownerUserId)}|${fileHash}`;
+    const inflight = this.inflightExtractions.get(inflightKey);
+    if (inflight) {
+      this.logger.log(
+        `[extract] key=${inflightKey} — đã có extraction đang chạy, dùng chung kết quả (KHÔNG gọi Gemini lần nữa).`,
+      );
+      return inflight;
+    }
+
+    const task = (async () => {
+      // Semaphore: queue up instead of stampeding the shared Gemini key pool.
+      const release = await this.getExtractionSemaphore().acquire();
+      try {
+        return await this.doExtractionAndCache(
+          filePath,
+          url,
+          fileHash,
+          ownerUserId,
+          triggeredBy,
+        );
+      } finally {
+        release();
+      }
+    })().finally(() => this.inflightExtractions.delete(inflightKey));
+
+    this.inflightExtractions.set(inflightKey, task);
+    return task;
+  }
+
+  private getExtractionSemaphore(): SimpleSemaphore {
+    if (!this.extractionSemaphore) {
+      const keys = this.embedding.keyCount();
+      const limit = Math.max(
+        MIN_CONCURRENT_EXTRACTIONS,
+        Math.min(
+          keys || MIN_CONCURRENT_EXTRACTIONS,
+          MAX_CONCURRENT_EXTRACTIONS,
+        ),
+      );
+      this.extractionSemaphore = new SimpleSemaphore(limit);
+    }
+    return this.extractionSemaphore;
+  }
+
+  private async doExtractionAndCache(
     filePath: string,
     url: string,
     fileHash: string,
@@ -276,25 +360,38 @@ export class CvAnalysisService {
       userId: ownerUserId as never,
       fileHash,
     };
-    return this.cvAnalysisModel.findOneAndUpdate(
-      filter,
-      {
-        $set: {
-          resumeUrl: url,
-          extractedData: data,
-          analyzedBy,
-          embedding,
-          embeddingHash,
-          analyzedAt: new Date(),
+    try {
+      return await this.cvAnalysisModel.findOneAndUpdate(
+        filter,
+        {
+          $set: {
+            resumeUrl: url,
+            extractedData: data,
+            analyzedBy,
+            embedding,
+            embeddingHash,
+            analyzedAt: new Date(),
+          },
+          $setOnInsert: {
+            userId: ownerUserId as never,
+            fileHash,
+            createdBy: { _id: triggeredBy._id, email: triggeredBy.email },
+          },
         },
-        $setOnInsert: {
-          userId: ownerUserId as never,
-          fileHash,
-          createdBy: { _id: triggeredBy._id, email: triggeredBy.email },
-        },
-      },
-      { upsert: true, returnDocument: 'after' },
-    );
+        { upsert: true, returnDocument: 'after' },
+      );
+    } catch (err) {
+      // Lost an upsert race against a parallel request (unique index on
+      // userId+fileHash) — same file, same data: reuse the winner's doc.
+      if (isDuplicateKeyError(err)) {
+        this.logger.log(
+          `[extract] thua race upsert cache (userId=${String(ownerUserId)}, hash=${fileHash}) — dùng doc của request thắng.`,
+        );
+        const winner = await this.cvAnalysisModel.findOne(filter);
+        if (winner) return winner;
+      }
+      throw err;
+    }
   }
 
   /**
@@ -532,8 +629,12 @@ export class CvAnalysisService {
       },
     };
 
-    // Persist the match snapshot so the HR list can sort/filter by it.
-    await this.resumeModel.updateOne({ _id: resumeId }, { $set: { match } });
+    // Persist the match snapshot so the HR list can sort/filter by it, and
+    // release the batch claim (if any) — the CV is scored, the claim's job is done.
+    await this.resumeModel.updateOne(
+      { _id: resumeId },
+      { $set: { match }, $unset: { matchClaim: 1 } },
+    );
 
     this.logger.log(
       `[HR-match] resume=${resumeId} → DONE: score=${result.score}, ` +
@@ -598,16 +699,27 @@ export class CvAnalysisService {
    * resume ids (un-scored CVs of the company, capped) for the client to score
    * one-by-one via `analyzeResumeMatchForHr`. Consumes one monthly batch run —
    * but only when there is actually something to analyze.
+   *
+   * Concurrency-safe by design:
+   *  - each returned resume is CLAIMED under a fresh batchId (atomic per-doc
+   *    updateMany), so two simultaneous starts get DISJOINT id sets instead of
+   *    scoring the same CVs twice;
+   *  - a start that claims nothing (another batch owns them all) returns
+   *    total=0 WITHOUT consuming quota;
+   *  - quota itself is consumed via an atomic conditional $inc (see
+   *    `consumeBatchRun`), so racing starts can never exceed the monthly limit.
    */
   async startMatchBatch(hr: IUser) {
     const companyId = this.requireCompanyId(hr);
     const period = this.currentPeriod();
 
+    // Early read is only for a friendly error message — the real gate is the
+    // atomic consumeBatchRun() below.
     const usageQuery: FilterQuery<AnalysisBatchUsageDocument> = {
       companyId,
       period,
     };
-    const usage = await this.batchUsageModel.findOne(usageQuery);
+    const usage = await this.batchUsageModel.findOne(usageQuery).lean();
     const used = usage?.count ?? 0;
     if (used >= MONTHLY_BATCH_LIMIT) {
       throw new ForbiddenException(
@@ -616,14 +728,32 @@ export class CvAnalysisService {
     }
 
     const effectiveMax = this.computeBatchMax();
+    const claimCutoff = new Date(Date.now() - MATCH_CLAIM_TTL_MS);
 
-    // Only CVs that are still open (PENDING / REVIEWING) AND haven't been scored
-    // yet (no persisted match). Once a candidate is APPROVED or REJECTED the
-    // decision is made, so there's no point spending a Gemini call on it.
+    // Worth scoring: no persisted match yet, OR a low-quality keyword-fallback
+    // match (produced when Gemini was down/exhausted) that deserves an AI redo.
+    const needsScoringFilter: FilterQuery<ResumeDocument> = {
+      $or: [
+        { 'match.score': { $exists: false } },
+        { 'match.analyzedBy': 'keyword' },
+      ],
+    };
+    // Not owned by another running batch (no claim, or the claim went stale —
+    // e.g. the other HR closed the tab mid-run).
+    const unclaimedFilter: FilterQuery<ResumeDocument> = {
+      $or: [
+        { 'matchClaim.claimedAt': { $exists: false } },
+        { 'matchClaim.claimedAt': { $lt: claimCutoff } },
+      ],
+    };
+
+    // Only CVs that are still open (PENDING / REVIEWING). Once a candidate is
+    // APPROVED or REJECTED the decision is made, so there's no point spending
+    // a Gemini call on it.
     const candidateFilter: FilterQuery<ResumeDocument> = {
       companyId,
       status: { $in: [...BATCH_ELIGIBLE_STATUSES] },
-      'match.score': { $exists: false },
+      $and: [needsScoringFilter, unclaimedFilter],
     };
     const candidates = await this.resumeModel
       .find(candidateFilter)
@@ -633,7 +763,17 @@ export class CvAnalysisService {
       .lean();
 
     if (candidates.length === 0) {
-      // Nothing to do — don't burn a monthly run.
+      // Nothing claimable — don't burn a monthly run. Tell the HR whether the
+      // CVs are simply all scored, or currently owned by another running batch.
+      const claimedElsewhereFilter: FilterQuery<ResumeDocument> = {
+        companyId,
+        status: { $in: [...BATCH_ELIGIBLE_STATUSES] },
+        $and: [needsScoringFilter],
+        'matchClaim.claimedAt': { $gte: claimCutoff },
+      };
+      const claimedElsewhere = await this.resumeModel.countDocuments(
+        claimedElsewhereFilter,
+      );
       return {
         period,
         used,
@@ -643,24 +783,56 @@ export class CvAnalysisService {
         total: 0,
         resumeIds: [] as string[],
         message:
-          'Không có CV nào cần phân tích (chỉ phân tích hồ sơ đang chờ/đang xem xét và chưa được chấm điểm).',
+          claimedElsewhere > 0
+            ? 'Các CV chưa chấm đang được một lượt phân tích hàng loạt khác xử lý. Vui lòng đợi lượt đó hoàn tất.'
+            : 'Không có CV nào cần phân tích (chỉ phân tích hồ sơ đang chờ/đang xem xét và chưa được chấm điểm).',
       };
     }
 
-    // Consume one batch run for the company this month.
-    const usageFilter: FilterQuery<AnalysisBatchUsageDocument> = {
-      companyId,
-      period,
-    };
-    const updated = await this.batchUsageModel.findOneAndUpdate(
-      usageFilter,
+    // Claim the candidates under this batch's id. The filter is re-checked
+    // per-document inside updateMany (atomic per doc), so ids grabbed by a
+    // concurrent start in the meantime are simply NOT claimed here.
+    const batchId = new mongoose.Types.ObjectId().toString();
+    await this.resumeModel.updateMany(
       {
-        $inc: { count: 1 },
-        $setOnInsert: { companyId: companyId as never, period },
+        _id: { $in: candidates.map((c) => c._id) },
+        status: { $in: [...BATCH_ELIGIBLE_STATUSES] },
+        $and: [needsScoringFilter, unclaimedFilter],
       },
-      { upsert: true, new: true },
+      { $set: { matchClaim: { batchId, claimedAt: new Date() } } },
     );
-    const newUsed = updated?.count ?? used + 1;
+    const claimed = await this.resumeModel
+      .find({ 'matchClaim.batchId': batchId })
+      .select('_id')
+      .lean();
+
+    if (claimed.length === 0) {
+      // Lost every candidate to a concurrent batch — no work, no quota burn.
+      return {
+        period,
+        used,
+        limit: MONTHLY_BATCH_LIMIT,
+        remaining: Math.max(0, MONTHLY_BATCH_LIMIT - used),
+        effectiveMax,
+        total: 0,
+        resumeIds: [] as string[],
+        message:
+          'Các CV chưa chấm đang được một lượt phân tích hàng loạt khác xử lý. Vui lòng đợi lượt đó hoàn tất.',
+      };
+    }
+
+    // Consume one batch run — atomic; on failure release our claims so the
+    // resumes are immediately available to the next batch.
+    let newUsed: number;
+    try {
+      newUsed = await this.consumeBatchRun(companyId, period);
+    } catch (err) {
+      await this.resumeModel.updateMany(
+        { 'matchClaim.batchId': batchId },
+        { $unset: { matchClaim: 1 } },
+      );
+      throw err;
+    }
 
     return {
       period,
@@ -668,9 +840,52 @@ export class CvAnalysisService {
       limit: MONTHLY_BATCH_LIMIT,
       remaining: Math.max(0, MONTHLY_BATCH_LIMIT - newUsed),
       effectiveMax,
-      total: candidates.length,
-      resumeIds: candidates.map((c) => String(c._id)),
+      total: claimed.length,
+      resumeIds: claimed.map((c) => String(c._id)),
     };
+  }
+
+  /**
+   * Atomically consume one monthly batch run. The `count < LIMIT` condition
+   * lives INSIDE the update filter, so no interleaving of concurrent starts
+   * can push a company past MONTHLY_BATCH_LIMIT. Returns the new used count.
+   */
+  private async consumeBatchRun(
+    companyId: string,
+    period: string,
+  ): Promise<number> {
+    const quotaFilter: FilterQuery<AnalysisBatchUsageDocument> = {
+      companyId,
+      period,
+      count: { $lt: MONTHLY_BATCH_LIMIT },
+    };
+    try {
+      const updated = await this.batchUsageModel.findOneAndUpdate(
+        quotaFilter,
+        {
+          $inc: { count: 1 },
+          $setOnInsert: { companyId: companyId as never, period },
+        },
+        { upsert: true, new: true },
+      );
+      return updated?.count ?? 1;
+    } catch (err) {
+      if (!isDuplicateKeyError(err)) throw err;
+      // E11000: the usage doc exists but didn't match `count < LIMIT` (quota
+      // exhausted), or we lost a first-of-month upsert race. One retry without
+      // upsert settles which.
+      const retried = await this.batchUsageModel.findOneAndUpdate(
+        quotaFilter,
+        { $inc: { count: 1 } },
+        { new: true },
+      );
+      if (!retried) {
+        throw new ForbiddenException(
+          `Công ty đã dùng hết ${MONTHLY_BATCH_LIMIT} lượt phân tích hàng loạt trong tháng này. Vui lòng thử lại vào tháng sau.`,
+        );
+      }
+      return retried.count;
+    }
   }
 
   private isAdmin(user: IUser): boolean {

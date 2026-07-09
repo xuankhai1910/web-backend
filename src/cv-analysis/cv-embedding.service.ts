@@ -159,8 +159,8 @@ export class CvEmbeddingService {
     const yoe = job.yearsOfExperience;
     const yoeStr =
       yoe && (yoe.min !== undefined || yoe.max !== undefined)
-      ? `YOE: ${yoe.min ?? 0}-${yoe.max ?? yoe.min ?? 0} years`
-      : '';
+        ? `YOE: ${yoe.min ?? 0}-${yoe.max ?? yoe.min ?? 0} years`
+        : '';
     const skills = this.joinList(job.skills);
     const parts = [
       job.name ? `Role: ${job.name}` : '',

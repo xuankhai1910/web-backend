@@ -82,5 +82,8 @@ export class CvAnalysis {
 
 export const CvAnalysisSchema = SchemaFactory.createForClass(CvAnalysis);
 
-// Compound index for cache lookup: findOne({ userId, fileHash })
-CvAnalysisSchema.index({ userId: 1, fileHash: 1 });
+// Compound index for cache lookup: findOne({ userId, fileHash }).
+// UNIQUE so concurrent extraction upserts can't insert duplicate cache docs —
+// the loser gets E11000 and refetches the winner (see runExtractionAndCache).
+// Requires running src/databases/dedupe-cv-analyses.ts once before deploy.
+CvAnalysisSchema.index({ userId: 1, fileHash: 1 }, { unique: true });

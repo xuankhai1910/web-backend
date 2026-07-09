@@ -18,7 +18,8 @@ import { SubscribersModule } from './subscribers/subscribers.module';
 import { MailModule } from './mail/mail.module';
 import MongooseDelete from 'mongoose-delete';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { UserAwareThrottlerGuard } from './core/user-throttler.guard';
 import { HealthModule } from './health/health.module';
 import { CvAnalysisModule } from './cv-analysis/cv-analysis.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -81,9 +82,17 @@ import { ChatModule } from './chat/chat.module';
   controllers: [AppController],
   providers: [
     AppService,
+    // Thứ tự APP_GUARD = thứ tự chạy: JwtAuthGuard PHẢI đứng trước throttler
+    // để req.user đã được gắn khi UserAwareThrottlerGuard đếm quota theo user
+    // (trước đây JwtAuthGuard đăng ký qua useGlobalGuards ở main.ts nên luôn
+    // chạy SAU các APP_GUARD — throttler khi đó chỉ đếm được theo IP).
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: UserAwareThrottlerGuard,
     },
   ],
 })

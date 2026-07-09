@@ -33,7 +33,9 @@ async function main() {
   });
 
   try {
-    const jobModel = app.get<SoftDeleteModel<JobDocument>>(getModelToken(Job.name));
+    const jobModel = app.get<SoftDeleteModel<JobDocument>>(
+      getModelToken(Job.name),
+    );
 
     // Match docs where company._id is a string (BSON type 2).
     const filter = { 'company._id': { $type: 'string' } } as Record<
@@ -76,7 +78,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

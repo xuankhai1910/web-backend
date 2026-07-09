@@ -1,23 +1,23 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get } from '@nestjs/common';
 import {
-	HealthCheck,
-	HealthCheckService,
-	MongooseHealthIndicator,
-	TypeOrmHealthIndicator,
-} from "@nestjs/terminus";
-import { Public } from "src/decorators/customize";
+  HealthCheck,
+  HealthCheckService,
+  MongooseHealthIndicator,
+  TypeOrmHealthIndicator,
+} from '@nestjs/terminus';
+import { Public } from 'src/decorators/customize';
 
-@Controller("health")
+@Controller('health')
 export class HealthController {
-	constructor(
-		private health: HealthCheckService,
-		private db: MongooseHealthIndicator,
-	) {}
+  constructor(
+    private health: HealthCheckService,
+    private db: MongooseHealthIndicator,
+  ) {}
 
-	@Get()
-	@Public()
-	@HealthCheck()
-	check() {
-		return this.health.check([() => this.db.pingCheck("database")]);
-	}
+  @Get()
+  @Public()
+  @HealthCheck()
+  check() {
+    return this.health.check([() => this.db.pingCheck('database')]);
+  }
 }

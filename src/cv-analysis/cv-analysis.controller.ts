@@ -58,10 +58,12 @@ export class CvAnalysisController {
   // HR-facing: chấm độ phù hợp của 1 hồ sơ ứng tuyển với tin tuyển dụng.
   // KHÔNG @SkipCheckPermission — route đi qua permission check của JwtAuthGuard;
   // quyền cần gán cho role HR: (POST, /api/v1/cv-analysis/resumes/:id/match).
-  // Throttle nới lên 60/phút để vòng lặp batch phía client không bị nghẽn (mỗi
-  // CV chưa cache vẫn bị giới hạn tự nhiên bởi độ trễ + rotator của Gemini).
+  // Throttle 120/phút, đếm THEO USER (UserAwareThrottlerGuard): vòng lặp batch
+  // tuần tự với ~100 CV cache-hit vẫn lọt trong 1 phút, và nhiều HR chung IP
+  // văn phòng không còn chia nhau một bucket. CV chưa cache vẫn bị giới hạn tự
+  // nhiên bởi độ trễ + semaphore + rotator của Gemini.
   @ResponseMessage('Phân tích độ phù hợp CV thành công')
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Post('resumes/:id/match')
   analyzeResumeMatch(@Param('id') id: string, @User() hr: IUser) {
     return this.cvAnalysisService.analyzeResumeMatchForHr(id, hr);

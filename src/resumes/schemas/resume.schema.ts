@@ -1,108 +1,118 @@
-import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import mongoose, { HydratedDocument } from "mongoose";
-import { Company } from "src/companies/schemas/company.schema";
-import { Job } from "src/jobs/schemas/job.schema";
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import mongoose, { HydratedDocument } from 'mongoose';
+import { Company } from 'src/companies/schemas/company.schema';
+import { Job } from 'src/jobs/schemas/job.schema';
 
 export type ResumeDocument = HydratedDocument<Resume>;
 
 @Schema({ timestamps: true })
 export class Resume {
-	@Prop({ required: true })
-	email: string;
+  @Prop({ required: true })
+  email: string;
 
-	@Prop()
-	userId: mongoose.Schema.Types.ObjectId;
+  @Prop()
+  userId: mongoose.Schema.Types.ObjectId;
 
-	@Prop()
-	url: string;
+  @Prop()
+  url: string;
 
-	@Prop()
-	status: string;
+  @Prop()
+  status: string;
 
-	@Prop({ type: mongoose.Schema.Types.ObjectId, ref: Company.name })
-	companyId: mongoose.Schema.Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Company.name })
+  companyId: mongoose.Schema.Types.ObjectId;
 
-	@Prop({ type: mongoose.Schema.Types.ObjectId, ref: Job.name })
-	jobId: mongoose.Schema.Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Job.name })
+  jobId: mongoose.Schema.Types.ObjectId;
 
-	@Prop({ type: mongoose.Schema.Types.Array })
-	history: {
-		status: string;
-		updatedAt: Date;
-		updatedBy: {
-			_id: mongoose.Schema.Types.ObjectId;
-			email: string;
-		};
-	}[];
+  @Prop({ type: mongoose.Schema.Types.Array })
+  history: {
+    status: string;
+    updatedAt: Date;
+    updatedBy: {
+      _id: mongoose.Schema.Types.ObjectId;
+      email: string;
+    };
+  }[];
 
-	// Kết quả chấm độ phù hợp giữa CV của ứng viên và tin tuyển dụng đã ứng
-	// tuyển. Được HR tính theo yêu cầu (nút "Phân tích") qua CvAnalysisService;
-	// lưu lại để danh sách có thể xếp hạng/lọc mà không phải tính lại.
-	@Prop({ type: Object })
-	match: {
-		score: number; // 0..1
-		matchedSkills: string[];
-		breakdown: {
-			skillScore: number;
-			titleScore: number;
-			desiredTitleScore: number;
-			roleScore: number;
-			specializationScore: number;
-			levelScore: number;
-			locationScore: number;
-			vectorScore: number;
-		};
-		analyzedBy: string; // 'ai' | 'keyword'
-		analyzedAt: Date;
-		jobId: mongoose.Schema.Types.ObjectId; // = jobId tại thời điểm phân tích
-		// Snapshot 2 phía để modal so sánh CV ↔ Job mở được từ danh sách mà
-		// không phải phân tích lại. Optional: match cũ (trước feature) sẽ thiếu.
-		extracted?: {
-			skills: string[];
-			level: string;
-			yearsOfExperience: number;
-			desiredJobTitle?: string;
-			desiredCategory?: string;
-			desiredSpecialization?: string;
-			preferredLocations?: string[];
-		};
-		jobRequirements?: {
-			name?: string;
-			skills: string[];
-			level?: string;
-			location?: string;
-			category?: string;
-			specialization?: string;
-			yearsOfExperience?: { min?: number; max?: number };
-		};
-	};
+  // Kết quả chấm độ phù hợp giữa CV của ứng viên và tin tuyển dụng đã ứng
+  // tuyển. Được HR tính theo yêu cầu (nút "Phân tích") qua CvAnalysisService;
+  // lưu lại để danh sách có thể xếp hạng/lọc mà không phải tính lại.
+  @Prop({ type: Object })
+  match: {
+    score: number; // 0..1
+    matchedSkills: string[];
+    breakdown: {
+      skillScore: number;
+      titleScore: number;
+      desiredTitleScore: number;
+      roleScore: number;
+      specializationScore: number;
+      levelScore: number;
+      locationScore: number;
+      vectorScore: number;
+    };
+    analyzedBy: string; // 'ai' | 'keyword'
+    analyzedAt: Date;
+    jobId: mongoose.Schema.Types.ObjectId; // = jobId tại thời điểm phân tích
+    // Snapshot 2 phía để modal so sánh CV ↔ Job mở được từ danh sách mà
+    // không phải phân tích lại. Optional: match cũ (trước feature) sẽ thiếu.
+    extracted?: {
+      skills: string[];
+      level: string;
+      yearsOfExperience: number;
+      desiredJobTitle?: string;
+      desiredCategory?: string;
+      desiredSpecialization?: string;
+      preferredLocations?: string[];
+    };
+    jobRequirements?: {
+      name?: string;
+      skills: string[];
+      level?: string;
+      location?: string;
+      category?: string;
+      specialization?: string;
+      yearsOfExperience?: { min?: number; max?: number };
+    };
+  };
 
-	@Prop()
-	createdAt: Date;
+  // Đánh dấu CV đang thuộc một lượt "phân tích hàng loạt" đang chạy — hai lượt
+  // start đồng thời sẽ claim được các tập CV KHÔNG giao nhau nên không chấm
+  // trùng. Được $unset khi chấm xong; claim quá MATCH_CLAIM_TTL_MS coi như hết
+  // hạn (client tắt giữa chừng) và lượt sau được claim lại.
+  @Prop({ type: Object })
+  matchClaim?: {
+    batchId: string;
+    claimedAt: Date;
+  };
 
-	@Prop()
-	updatedAt: Date;
+  @Prop()
+  createdAt: Date;
 
-	@Prop({ type: Object })
-	createdBy: {
-		_id: mongoose.Schema.Types.ObjectId;
-		email: string;
-	};
+  @Prop()
+  updatedAt: Date;
 
-	@Prop({ type: Object })
-	updatedBy: {
-		_id: mongoose.Schema.Types.ObjectId;
-		email: string;
-	};
+  @Prop({ type: Object })
+  createdBy: {
+    _id: mongoose.Schema.Types.ObjectId;
+    email: string;
+  };
 
-	@Prop({ type: Object })
-	deletedBy: {
-		_id: mongoose.Schema.Types.ObjectId;
-		email: string;
-	};
+  @Prop({ type: Object })
+  updatedBy: {
+    _id: mongoose.Schema.Types.ObjectId;
+    email: string;
+  };
+
+  @Prop({ type: Object })
+  deletedBy: {
+    _id: mongoose.Schema.Types.ObjectId;
+    email: string;
+  };
 }
 
 export const ResumeSchema = SchemaFactory.createForClass(Resume);
 
 // Hỗ trợ HR sắp xếp danh sách hồ sơ của công ty theo độ phù hợp (sort=-match.score).
-ResumeSchema.index({ companyId: 1, "match.score": -1 });
+ResumeSchema.index({ companyId: 1, 'match.score': -1 });

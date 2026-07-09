@@ -58,7 +58,14 @@ describe('CvScoringService title matching', () => {
       extracted,
       {
         name: 'Thuc Tap Sinh Full Stack Developer',
-        skills: ['nodejs', 'reactjs', 'nextjs', 'mongodb', 'javascript', 'java'],
+        skills: [
+          'nodejs',
+          'reactjs',
+          'nextjs',
+          'mongodb',
+          'javascript',
+          'java',
+        ],
         category: 'Software Engineering',
         specialization: 'Fullstack Developer',
         level: 'INTERN',
@@ -92,9 +99,9 @@ describe('CvScoringService title matching', () => {
 
   it('matches every configured Vietnam city when the CV omits accents', () => {
     for (const city of VIETNAM_CITIES) {
-      expect(service.locationMatchScore([stripVietnameseMarks(city)], city)).toBe(
-        1,
-      );
+      expect(
+        service.locationMatchScore([stripVietnameseMarks(city)], city),
+      ).toBe(1);
     }
   });
 

@@ -64,7 +64,9 @@ async function main() {
   if (targets.length > 0 && SAMPLE > 0) {
     console.log(`\n── Sample (${Math.min(SAMPLE, targets.length)}) ──`);
     for (const job of targets.slice(0, SAMPLE)) {
-      const preview = (job.description as string).slice(0, 200).replace(/\n/g, ' ⏎ ');
+      const preview = (job.description as string)
+        .slice(0, 200)
+        .replace(/\n/g, ' ⏎ ');
       console.log(`• ${job.name as string} :: ${preview}…`);
     }
   }

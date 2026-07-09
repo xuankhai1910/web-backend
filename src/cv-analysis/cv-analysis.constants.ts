@@ -54,6 +54,17 @@ export const PER_KEY_BATCH_RESUMES = 30;
 // has been APPROVED or REJECTED the HR has already decided, so a match score no
 // longer informs anything. Keep in sync with ALLOWED_STATUSES in resumes.service.
 export const BATCH_ELIGIBLE_STATUSES = ['PENDING', 'REVIEWING'] as const;
+// How long a batch "claim" on a resume stays valid. The client scores CVs
+// sequentially, so a claim older than this means the client died mid-run
+// (closed tab) — the next batch may re-claim those resumes.
+export const MATCH_CLAIM_TTL_MS = 15 * 60_000;
+// Bounds on how many Gemini EXTRACTIONS may run concurrently in this process.
+// The rotator's key pool is shared by every user, so unbounded parallel
+// batches just trade throughput for 429 cascades + 30-60s retry sleeps and
+// end up in the keyword fallback. Effective limit:
+//   clamp(keyCount, MIN_CONCURRENT_EXTRACTIONS, MAX_CONCURRENT_EXTRACTIONS)
+export const MIN_CONCURRENT_EXTRACTIONS = 2;
+export const MAX_CONCURRENT_EXTRACTIONS = 4;
 
 // ─── SCORING WEIGHTS ──────────────────────────────────────
 // `specialization` was dropped from scoring: it isn't available from a user

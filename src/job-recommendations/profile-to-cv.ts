@@ -23,7 +23,8 @@ export function profileToExtractedCv(
   // The candidate's target role — the CV-builder "Vị trí mong muốn" field is
   // stored in `profile.title`. Fall back to the latest job title only when
   // it's unset / still the default placeholder.
-  const desiredJobTitle = deriveDesiredTitle(profile, recentPosition) || undefined;
+  const desiredJobTitle =
+    deriveDesiredTitle(profile, recentPosition) || undefined;
   // The profile builder has no IT-taxonomy fields, so derive them from the title
   // + skills using the SAME role inference the scorer uses. This keeps the score
   // unchanged (the scorer already infers the role group from the title) while

@@ -168,7 +168,7 @@ async function main() {
     report.companies.updated++;
     companyOps.push({
       updateOne: {
-        filter: { _id: c._id as Types.ObjectId },
+        filter: { _id: c._id },
         update: { $set: { address: finalProvince } },
       },
     });
@@ -254,8 +254,7 @@ async function main() {
     }
 
     if (fallbackUsed === 'job') report.jobs.resolvedFromJobLocation++;
-    else if (fallbackUsed === 'company')
-      report.jobs.fellBackToCompanyAddress++;
+    else if (fallbackUsed === 'company') report.jobs.fellBackToCompanyAddress++;
     else report.jobs.fellBackToDefault++;
 
     report.provinceHistogram[finalProvince] =
@@ -303,7 +302,7 @@ async function main() {
     report.jobs.updated++;
     jobOps.push({
       updateOne: {
-        filter: { _id: j._id as Types.ObjectId },
+        filter: { _id: j._id },
         update: { $set: update },
       },
     });
@@ -344,11 +343,14 @@ async function main() {
   const sorted = Object.entries(report.provinceHistogram).sort(
     (a, b) => b[1] - a[1],
   );
-  for (const [k, v] of sorted.slice(0, 10)) logger.log(`  ${v.toString().padStart(5)}  ${k}`);
+  for (const [k, v] of sorted.slice(0, 10))
+    logger.log(`  ${v.toString().padStart(5)}  ${k}`);
   logger.log(`Unresolved entries: ${report.unresolved.length}`);
 
   if (!args.apply) {
-    logger.warn('DRY-RUN — no changes written. Re-run with --apply to persist.');
+    logger.warn(
+      'DRY-RUN — no changes written. Re-run with --apply to persist.',
+    );
   } else {
     logger.log('✅ Done.');
   }
@@ -358,7 +360,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

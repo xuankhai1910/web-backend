@@ -37,8 +37,8 @@ export class SubscribersService {
     const { filter, sort, projection, population } = aqp(qs);
     delete filter.current;
     delete filter.pageSize;
-    let offset = (+currentPage - 1) * +limit;
-    let defaultLimit = Math.min(+limit ? +limit : 10, 100);
+    const offset = (+currentPage - 1) * +limit;
+    const defaultLimit = Math.min(+limit ? +limit : 10, 100);
 
     const collation = { locale: 'vi', strength: 1 };
 

@@ -392,7 +392,7 @@ export class NotificationsService {
       .lean();
 
     return users.map((u) => ({
-      _id: u._id as mongoose.Types.ObjectId,
+      _id: u._id,
       recipientRole:
         roleMap.get(String(u.role)) === 'COMPANY_ADMIN'
           ? 'COMPANY_ADMIN'
