@@ -713,8 +713,7 @@ export class CvAnalysisService {
     const companyId = this.requireCompanyId(hr);
     const period = this.currentPeriod();
 
-    // Early read is only for a friendly error message — the real gate is the
-    // atomic consumeBatchRun() below.
+    //Early read is only for a friendly error message — the real gate is the atomic consumeBatchRun() below.
     const usageQuery: FilterQuery<AnalysisBatchUsageDocument> = {
       companyId,
       period,

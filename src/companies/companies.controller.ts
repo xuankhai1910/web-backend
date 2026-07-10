@@ -35,6 +35,13 @@ export class CompaniesController {
   }
 
   @Public()
+  @ResponseMessage('Lấy danh sách công ty hàng đầu thành công')
+  @Get('top')
+  findTop(@Query('limit') limit: string) {
+    return this.companiesService.findTop(+limit);
+  }
+
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.companiesService.findOne(id);

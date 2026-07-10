@@ -2,10 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { Company, CompanyDocument } from './schemas/company.schema';
+import { Job, JobDocument } from 'src/jobs/schemas/job.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import { InjectModel } from '@nestjs/mongoose';
 import { IUser } from 'src/users/users.interface';
-import mongoose, { mongo, Mongoose, Types } from 'mongoose';
+import mongoose, { mongo, Model, Mongoose, Types } from 'mongoose';
 import aqp from 'api-query-params';
 import { isEmpty } from 'class-validator';
 
@@ -14,6 +15,8 @@ export class CompaniesService {
   constructor(
     @InjectModel(Company.name)
     private companyModel: SoftDeleteModel<CompanyDocument>,
+    @InjectModel(Job.name)
+    private jobModel: Model<JobDocument>,
   ) {}
   create(createCompanyDto: CreateCompanyDto, user: IUser) {
     const company = this.companyModel.create({
@@ -55,6 +58,40 @@ export class CompaniesService {
       },
       result, //kết quả query
     };
+  }
+
+  async findTop(limit: number) {
+    const topLimit = Math.min(limit > 0 ? limit : 12, 50);
+
+    return this.jobModel.aggregate([
+      {
+        $match: {
+          isActive: true,
+          endDate: { $gte: new Date() },
+          deleted: { $ne: true },
+        },
+      },
+      { $group: { _id: '$company._id', jobCount: { $sum: 1 } } },
+      { $sort: { jobCount: -1 } },
+      { $limit: topLimit },
+      {
+        $lookup: {
+          from: 'companies',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'company',
+        },
+      },
+      { $unwind: '$company' },
+      { $match: { 'company.deleted': { $ne: true } } },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ['$company', { jobCount: '$jobCount' }],
+          },
+        },
+      },
+    ]);
   }
 
   async findOne(id: string) {
