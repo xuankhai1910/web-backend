@@ -16,22 +16,19 @@
 // use them transparently.
 export const GEMINI_MODEL_CHAIN = [
   'gemini-3.1-flash-lite', // 15 RPM, 500 RPD/key — best JSON-mode bulk
-  'gemini-2.5-flash', // 10 RPM, 250 RPD/key
-  'gemini-2.5-flash-lite', // 10 RPM, ~200 RPD/key
+  'gemini-2.5-flash', // fallback
+  'gemini-2.5-flash-lite', // fallback
   'gemini-2.0-flash', // legacy fallback
   'gemini-2.0-flash-lite', // legacy fallback
-  'gemma-4-31b-it', // 15 RPM, 1.5K RPD/key — text-mode, huge quota
-  'gemma-4-26b-it', // 15 RPM, 1.5K RPD/key — text-mode, huge quota
   'gemini-3-flash', // 5 RPM, 20 RPD/key — premium quality, last resort
+  'gemini-3.5-flash', // 5 RPM, 20 RPD/key — premium quality, last resort
 ] as const;
 
-// Model chain for the user-facing CV *extraction* path. Excludes Gemma because:
-//   1. Gemma doesn't support responseSchema/JSON-mode — extraction always asks
-//      for structured JSON, so every Gemma attempt fails and is wasted.
-//   2. Gemma can't do PDF document understanding (inlineData), and CV uploads
-//      are mostly PDF — so even in text-mode it would degrade quality.
-// The full GEMINI_MODEL_CHAIN (incl. Gemma) is still used by generate-jd.ts,
-// which runs pure text-mode and benefits from Gemma's large daily quota.
+// Model chain for the user-facing CV *extraction* path. Kept as a filtered
+// alias of GEMINI_MODEL_CHAIN: the `gemma-` filter is a guard so that if a
+// Gemma model is ever re-added to the chain it won't leak into extraction —
+// Gemma can't do responseSchema/JSON-mode nor PDF understanding (inlineData),
+// both of which the structured, mostly-PDF extraction path relies on.
 export const CV_EXTRACTION_MODEL_CHAIN = GEMINI_MODEL_CHAIN.filter(
   (m) => !m.startsWith('gemma-'),
 );
