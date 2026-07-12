@@ -106,6 +106,16 @@ export class JobsService {
     return value;
   }
 
+  private normalizeCompany(company: Job['company'] | undefined) {
+    const rawCompanyId = company?._id;
+    return (
+      typeof rawCompanyId === 'string' &&
+      mongoose.Types.ObjectId.isValid(rawCompanyId)
+        ? { ...company, _id: new mongoose.Types.ObjectId(rawCompanyId) }
+        : company
+    ) as Job['company'];
+  }
+
   private isAdmin(user: IUser): boolean {
     const roleName = user?.role?.name?.toUpperCase();
     return roleName === 'SUPER_ADMIN' || roleName === 'ADMIN';
@@ -274,22 +284,7 @@ export class JobsService {
     );
     const embeddingHash = this.embedding.computeTextHash(text);
 
-    // `company` is a Mixed sub-doc, so Mongoose does NOT cast `company._id`.
-    // The payload sends it as a string; if we store it verbatim the HR list
-    // filter (which casts `user.company._id` to ObjectId, see findAll) never
-    // matches and the freshly-created job is invisible to its own company —
-    // even though admin (no company filter) sees it. Cast to ObjectId here so
-    // storage is consistent with seeded jobs.
-    const rawCompanyId = createJobDto.company?._id;
-    const company = (
-      typeof rawCompanyId === 'string' &&
-      mongoose.Types.ObjectId.isValid(rawCompanyId)
-        ? {
-            ...createJobDto.company,
-            _id: new mongoose.Types.ObjectId(rawCompanyId),
-          }
-        : createJobDto.company
-    ) as Job['company'];
+    const company = this.normalizeCompany(createJobDto.company);
 
     const data = await this.jobModel.create({
       ...createJobDto,
@@ -472,10 +467,15 @@ export class JobsService {
       embeddingPatch.embeddingHash = newHash;
     }
 
+    const companyPatch = updateJobDto.company
+      ? { company: this.normalizeCompany(updateJobDto.company) }
+      : {};
+
     return this.jobModel.updateOne(
       { _id: id },
       {
         ...updateJobDto,
+        ...companyPatch,
         ...embeddingPatch,
         isActive: nextIsActive,
         updatedBy: {
@@ -505,7 +505,9 @@ export class JobsService {
     // mongoose-delete performs an updateMany under the hood, so the resolved
     // result carries `modifiedCount` (not `deletedCount`); its TS type is the
     // narrower DeleteResult, hence the cast.
-    const cascaded = (await this.resumeModel.delete(resumeFilter)) as unknown as {
+    const cascaded = (await this.resumeModel.delete(
+      resumeFilter,
+    )) as unknown as {
       modifiedCount?: number;
     };
     if (cascaded?.modifiedCount) {
