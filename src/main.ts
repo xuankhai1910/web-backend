@@ -7,6 +7,7 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { TransformInterceptor } from './core/transform.interceptor';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import type { Request, Response } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
@@ -18,6 +19,10 @@ async function bootstrap() {
   // JwtAuthGuard giờ đăng ký qua APP_GUARD trong AppModule (đứng TRƯỚC
   // UserAwareThrottlerGuard) để req.user có sẵn khi throttler đếm theo user.
   app.useGlobalInterceptors(new TransformInterceptor(reflector));
+
+  app.use('/images/resume', (_req: Request, res: Response) => {
+    res.status(403).send('Forbidden');
+  });
 
   app.useStaticAssets(join(__dirname, '..', 'public'));
   app.setBaseViewsDir(join(__dirname, '..', 'views'));

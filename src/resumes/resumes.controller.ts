@@ -9,9 +9,9 @@ import {
   Res,
   Query,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ResumesService } from './resumes.service';
-import { CreateResumeDto, CreateUserCvDto } from './dto/create-resume.dto';
-import { UpdateResumeDto } from './dto/update-resume.dto';
+import { CreateUserCvDto } from './dto/create-resume.dto';
 import {
   ResponseMessage,
   SkipCheckPermission,
@@ -42,6 +42,31 @@ export class ResumesController {
   @SkipCheckPermission()
   countByJob(@Param('jobId') jobId: string, @User() user: IUser) {
     return this.resumesService.countByJob(jobId, user);
+  }
+
+  @Get('file')
+  @SkipCheckPermission()
+  async getFile(
+    @Query('url') url: string,
+    @Query('download') download: string | undefined,
+    @User() user: IUser,
+    @Res() res: Response,
+  ) {
+    const { absolutePath, filename } =
+      await this.resumesService.getResumeFilePath(url, user);
+
+    if (download) {
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(filename)}"`,
+      );
+    }
+
+    res.sendFile(absolutePath, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).send('Không tìm thấy file');
+      }
+    });
   }
 
   @ResponseMessage('Lấy danh sách resume thành công')

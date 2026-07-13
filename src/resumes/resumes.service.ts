@@ -13,6 +13,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Resume, ResumeDocument } from './schemas/resume.schema';
 import type { SoftDeleteModel } from 'mongoose-delete';
 import mongoose from 'mongoose';
+import * as path from 'path';
 import aqp from 'api-query-params';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { UserProfilesService } from 'src/user-profiles/user-profiles.service';
@@ -122,6 +123,49 @@ export class ResumesService {
     if (uploaded && String(uploaded.ownerId) !== String(user._id)) {
       throw new ForbiddenException('Ban khong co quyen su dung URL CV nay');
     }
+  }
+
+  async getResumeFilePath(
+    rawUrl: string,
+    user: IUser,
+  ): Promise<{ absolutePath: string; filename: string }> {
+    this.assertSafeUrl(rawUrl);
+    const filename = this.getResumeUploadFilename(rawUrl);
+    if (!filename) {
+      throw new BadRequestException('URL CV không hợp lệ');
+    }
+
+    const uploaded = await this.uploadedFileModel
+      .findOne({ folder: 'resume', filename, status: 'uploaded' })
+      .select('ownerId originalName')
+      .lean();
+
+    const ownsUpload =
+      !!uploaded && String(uploaded.ownerId) === String(user._id);
+
+    if (!ownsUpload) {
+      const resume = await this.resumeModel
+        .findOne({
+          url: { $in: [filename, `images/resume/${filename}`] },
+          ...this.scopeFilter(user),
+        })
+        .select('_id')
+        .lean();
+
+      if (!resume) {
+        throw new ForbiddenException('Bạn không có quyền truy cập CV này');
+      }
+    }
+
+    const absolutePath = path.resolve(
+      process.cwd(),
+      'public',
+      'images',
+      'resume',
+      filename,
+    );
+
+    return { absolutePath, filename: uploaded?.originalName || filename };
   }
 
   async create(createUserCvDto: CreateUserCvDto, user: IUser) {
